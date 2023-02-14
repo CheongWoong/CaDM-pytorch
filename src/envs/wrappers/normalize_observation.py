@@ -52,17 +52,21 @@ class NormalizeObservation(gym.Wrapper):
         newly instantiated or the policy was changed recently.
     """
 
-    def __init__(self, env: gym.Env, epsilon: float = 1e-8):
+    def __init__(self, env: gym.Env, epsilon: float = 1e-8, obs_rms=None, test=False):
         """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
         Args:
             env (Env): The environment to apply the wrapper
             epsilon: A stability parameter that is used when scaling the observations.
         """
         super().__init__(env)
+        self.test = test
         self.num_envs = getattr(env, "num_envs", 1)
         self.is_vector_env = getattr(env, "is_vector_env", False)
         if self.is_vector_env:
-            self.obs_rms = {k: RunningMeanStd(shape=v.shape) for k, v in self.single_observation_space.items()}
+            if obs_rms:
+                self.obs_rms = obs_rms
+            else:
+                self.obs_rms = {k: RunningMeanStd(shape=v.shape) for k, v in self.single_observation_space.items()}
         else:
             raise NotImplementedError
         self.epsilon = epsilon
@@ -89,6 +93,11 @@ class NormalizeObservation(gym.Wrapper):
         """Normalises the observation using the running mean and variance of the observations."""
         normalized_obs = {}
         for k, v in obs.items():
-            self.obs_rms[k].update(v)
-            normalized_obs[k] = (v - self.obs_rms[k].mean) / np.sqrt(self.obs_rms[k].var + self.epsilon)
+            if not self.test:
+                self.obs_rms[k].update(v)
+            normalized_v = (v - self.obs_rms[k].mean) / np.sqrt(self.obs_rms[k].var + self.epsilon)
+            normalized_v = np.clip(normalized_v, -10, 10)
+            normalized_obs[k] = normalized_v
+            if k == "context":
+                normalized_obs["original_context"] = v
         return normalized_obs

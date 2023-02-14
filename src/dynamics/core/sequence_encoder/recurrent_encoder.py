@@ -9,13 +9,12 @@ class RecurrentEncoder(nn.Module):
         super(RecurrentEncoder, self).__init__()
         
         self.args, self.config = args, config
-        self.ensemble_size = args.mpc.ensemble_size
 
-        self.lstm = EnsembleLSTMLayer(self.ensemble_size, args.obs_dim + args.action_dim, config.rnn_hidden_dim)
+        self.lstm = EnsembleLSTMLayer(args.ensemble_size, args.obs_dim + args.action_dim, config.rnn_hidden_dim)
 
         fc_hidden_sizes = (config.rnn_hidden_dim,) + eval(config.fc_hidden_sizes)
         self.fc = create_fc_layers(
-            self.ensemble_size,
+            args.ensemble_size,
             fc_hidden_sizes,
             config.activation,
         )
@@ -27,8 +26,8 @@ class RecurrentEncoder(nn.Module):
 
         batch_size = x.shape[0]
         hidden_dim = self.config.rnn_hidden_dim
-        h0 = torch.zeros(self.ensemble_size, batch_size, hidden_dim, device=x.device)
-        c0 = torch.zeros(self.ensemble_size, batch_size, hidden_dim, device=x.device)
+        h0 = torch.zeros(self.args.ensemble_size, batch_size, hidden_dim, device=x.device)
+        c0 = torch.zeros(self.args.ensemble_size, batch_size, hidden_dim, device=x.device)
         lstm_out, _ = self.lstm(x, (h0, c0))
 
         x = self.fc(lstm_out[:,:,-1,:])

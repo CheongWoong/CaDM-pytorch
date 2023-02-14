@@ -22,7 +22,7 @@ class Sampler():
             "future_obs": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
             "future_obs_delta": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
             "future_act": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.action_dim), dtype=torch.float32).to(self.device),
-            "future_bool": torch.zeros((args.num_envs, args.num_steps, args.future_length,), dtype=torch.float32).to(self.device),
+            "future_mask": torch.zeros((args.num_envs, args.num_steps, args.future_length, 1), dtype=torch.float32).to(self.device),
             "context": torch.zeros((args.num_envs, args.num_steps, args.context_dim), dtype=torch.float32).to(self.device),
         }
         self.start_indices = np.zeros((args.num_envs), dtype=np.int32)
@@ -119,7 +119,7 @@ class Sampler():
             "future_obs": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
             "future_obs_delta": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
             "future_act": torch.zeros((args.num_envs, args.num_steps, args.future_length, args.action_dim), dtype=torch.float32).to(self.device),
-            "future_bool": torch.zeros((args.num_envs, args.num_steps, args.future_length,), dtype=torch.float32).to(self.device),
+            "future_mask": torch.zeros((args.num_envs, args.num_steps, args.future_length, 1), dtype=torch.float32).to(self.device),
             "context": torch.zeros((args.num_envs, args.num_steps, args.context_dim), dtype=torch.float32).to(self.device),
         }
         self.start_indices = np.zeros((args.num_envs), dtype=np.int32)

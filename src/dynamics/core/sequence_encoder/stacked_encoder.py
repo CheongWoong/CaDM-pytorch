@@ -12,7 +12,7 @@ class StackedEncoder(nn.Module):
 
         fc_hidden_sizes = ((args.obs_dim + args.action_dim)*args.history_length,) + eval(config.fc_hidden_sizes)
         self.fc = create_fc_layers(
-            args.mpc.ensemble_size,
+            args.ensemble_size,
             fc_hidden_sizes,
             config.activation,
         )

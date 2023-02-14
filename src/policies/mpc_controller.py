@@ -15,24 +15,20 @@ class MPCController(Policy):
         args,
         envs,
         dynamics_model,
-        reward_model=None,
-        use_reward_model=False,
     ):
         self.args = args
         self.envs = envs
         self.dynamics_model = dynamics_model
-        self.reward_model = reward_model
-        self.use_reward_model = use_reward_model
 
-        self.discount = args.mpc.discount
-        self.n_candidates = args.mpc.n_candidates
-        self.n_particles = args.mpc.n_particles
-        self.ensemble_size = args.mpc.ensemble_size
-        self.horizon = args.mpc.horizon
-        self.use_cem = args.mpc.use_cem
-        self.num_cem_iters = args.mpc.num_cem_iters
-        self.percent_elites = args.mpc.percent_elites
-        self.alpha = args.mpc.alpha
+        self.gamma = args.gamma
+        self.n_candidates = args.n_candidates
+        self.n_particles = args.n_particles
+        self.ensemble_size = args.ensemble_size
+        self.horizon = args.horizon
+        self.use_cem = args.use_cem
+        self.num_cem_iters = args.num_cem_iters
+        self.percent_elites = args.percent_elites
+        self.alpha = args.alpha
         self.num_elites = max(int(self.n_candidates * self.percent_elites), 1)
 
         self.dummy_env = envs.envs[0].unwrapped
@@ -115,15 +111,11 @@ class MPCController(Policy):
                 denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean
                 denormalized_delta = delta * torch.sqrt(delta_var + self.envs.epsilon) + delta_mean
 
-                denormalized_next_obs = self.dummy_env.obs_postproc(denormalized_obs, denormalized_delta)
+                denormalized_next_obs = denormalized_obs + denormalized_delta
                 repeated_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
 
-                if self.use_reward_model:
-                    assert self.reward_model is not None
-                    reward = self.reward_model.predict(observation, repeated_action, denormalized_next_obs)
-                else:
-                    reward = self.dummy_env.reward(observation, repeated_action, denormalized_next_obs)
-                returns += self.discount ** t * reward
+                reward = self.dummy_env.reward(denormalized_obs, repeated_action, denormalized_next_obs)
+                returns += self.gamma ** t * reward
                 next_observation = (denormalized_next_obs - obs_mean) / torch.sqrt(obs_var + self.envs.epsilon)
                 observation = next_observation
             returns = returns.mean(-1)
@@ -183,15 +175,11 @@ class MPCController(Policy):
             denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean
             denormalized_delta = delta * torch.sqrt(delta_var + self.envs.epsilon) + delta_mean
 
-            denormalized_next_obs = self.dummy_env.obs_postproc(denormalized_obs, denormalized_delta)
+            denormalized_next_obs = denormalized_obs + denormalized_delta
             repeated_action = torch.tile(action[:, :, t][:, :, None, :], [1, 1, p, 1])
 
-            if self.use_reward_model:
-                assert self.reward_model is not None
-                reward = self.reward_model.predict(observation, repeated_action, denormalized_next_obs)
-            else:
-                reward = self.dummy_env.reward(observation, repeated_action, denormalized_next_obs)
-            returns += self.discount ** t * reward
+            reward = self.dummy_env.reward(denormalized_obs, repeated_action, denormalized_next_obs)
+            returns += self.gamma ** t * reward
             next_observation = (denormalized_next_obs - obs_mean) / torch.sqrt(obs_var + self.envs.epsilon)
             observation = next_observation
         returns = returns.mean(-1)

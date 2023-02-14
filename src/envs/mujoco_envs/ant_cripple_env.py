@@ -350,15 +350,6 @@ class CrippleAntEnv(MujocoEnv, utils.EzPickle):
         else:
             return np.concatenate((self.xy_position_after[:1], position, velocity)) #####
 
-    def obs_preproc(self, obs):
-        return obs[..., 1:]
-    
-    def obs_postproc(self, obs, pred):
-        return obs + pred
-    
-    def targ_proc(self, obs, next_obs):
-        return next_obs - obs
-
     def reset_model(self):
         noise_low = -self._reset_noise_scale
         noise_high = self._reset_noise_scale

@@ -1,0 +1,11 @@
+train_0:
+  mass_scale_set: [0.75, 0.85, 1.0, 1.15, 1.25]
+  damping_scale_set: [0.75, 0.85, 1.0, 1.15, 1.25]
+  cripple_set : [0, 1, 2]
+  extreme_set: [0]
+
+test_0:
+  mass_scale_set: [0.40, 0.50, 1.50, 1.60]
+  damping_scale_set: [0.40, 0.50, 1.50, 1.60]
+  cripple_set : [3]
+  extreme_set: [0]

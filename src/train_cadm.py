@@ -92,12 +92,17 @@ if __name__ == "__main__":
     args.device = device = "cuda" if torch.cuda.is_available() and args.cuda else "cpu"
 
     # env setup
+    env_config = OmegaConf.load(os.path.join(dir_path, "../configs/env_configs", args.env_id+".yaml"))
+    env_config = getattr(env_config, args.randomization_id)
+    env_config = OmegaConf.to_object(env_config)
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.history_length, args.future_length) for i in range(args.num_envs)]
+        [make_env(args.env_id, i, args.capture_video, run_name, args.history_length, args.future_length, env_config) for i in range(args.num_envs)]
     )
     envs = NormalizeObservation(envs)
     envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
     
+    args.num_steps = envs.envs[0].spec.max_episode_steps
+    args.total_timesteps = args.n_itr * args.num_envs * args.num_steps
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
     args.context_dim = envs.envs[0].num_modifiable_parameters()
@@ -112,6 +117,7 @@ if __name__ == "__main__":
     
     args.batch_size = int(args.num_envs * args.num_steps)
     num_updates = args.total_timesteps // args.batch_size
+    video_filenames = set()
 
     for update in range(1, num_updates + 1):
         # Annealing the rate if instructed to do so.
@@ -129,8 +135,15 @@ if __name__ == "__main__":
         print("SPS:", int(args.global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(args.global_step / (time.time() - start_time)), args.global_step)
 
+        if args.track and args.capture_video:
+            for filename in os.listdir(f"videos/{run_name}"):
+                if filename not in video_filenames and filename.endswith(".mp4"):
+                    wandb.log({f"videos": wandb.Video(f"videos/{run_name}/{filename}")})
+                    video_filenames.add(filename)
+
         #### Save periodically
         if update % (num_updates // args.save_freq) == 0 or update == num_updates:
+            dynamics_model.obs_rms = envs.obs_rms
             dynamics_model.save(os.path.join('runs', run_name, f'checkpoint_{args.global_step}.pt'))
             with open(os.path.join('runs', run_name, 'training_args.json'), 'w') as fout:
                 json.dump(vars(args_for_save), fout, indent=2)
@@ -138,5 +151,5 @@ if __name__ == "__main__":
                 OmegaConf.save(config=config, f=fout)
             print('[INFO] Checkpoint is saved')
 
-    # envs.close()
+    envs.close()
     writer.close()

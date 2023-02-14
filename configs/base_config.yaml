@@ -1,36 +1,4 @@
 #####################################
-# DM configs
-history_length: 10
-use_obs_delta: true
-future_length: 11 # one is discarded
-shuffle_future: true
-back_coeff: 0.5
-
-# MPC configs
-mpc:
-  discount: 1.0
-  use_cem: true
-  n_candidates: 200
-  ensemble_size: 5
-  n_particles: 20
-  horizon: 30
-  num_cem_iters: 5
-  percent_elites: 0.25
-  alpha: 0.1
-
-# Training configs
-total_timesteps: 200000
-num_envs: 10
-num_steps: 200
-minibatch_size: 256
-learning_rate: 0.001
-update_epochs: 5
-
-# Hidden dims
-hidden_dim: 200
-context_hidden_dim: 64
-
-#####################################
 # Sequence encoder types
 sequence_encoder:
   stacked:
@@ -62,7 +30,7 @@ decoder:
 #####################################
 # Dynamics model types
 dynamics_model:
-  vanilla_dm:
+  dm:
     sequence_encoder_type: none
     context_encoder_type: none
     decoder_type: single_head

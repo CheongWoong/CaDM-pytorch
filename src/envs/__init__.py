@@ -13,12 +13,14 @@ import numpy as np
 from .wrappers import HistoryWrapper, ContextWrapper
 
 
-def make_env(env_id, idx, capture_video, run_name, len_history, len_future):
+def make_env(env_id, idx, capture_video, run_name, history_length, len_future, env_config, gui=False):
     def thunk():
-        if capture_video:
-            env = gym.make(env_id, render_mode="rgb_array")
+        if capture_video or gui:
+            kwargs = {"render_mode": "rgb_array"}
         else:
-            env = gym.make(env_id)
+            kwargs = {}
+        kwargs.update(env_config)
+        env = gym.make(env_id, **kwargs)
         env = gym.wrappers.FlattenObservation(env)  # deal with dm_control's Dict observation space
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if capture_video:
@@ -26,7 +28,7 @@ def make_env(env_id, idx, capture_video, run_name, len_history, len_future):
                 env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         # env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.RescaleAction(env, -1.0, 1.0)
-        env = HistoryWrapper(env, len_history, len_future)
+        env = HistoryWrapper(env, history_length, len_future)
         env = ContextWrapper(env)
         return env
 

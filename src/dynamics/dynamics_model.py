@@ -96,10 +96,16 @@ class DynamicsModel(nn.Module):
         return writer_dict
 
     def save(self, path):
-        torch.save(self.state_dict(), path)
+        checkpoint = {
+            "model": self.state_dict(),
+            "obs_rms": self.obs_rms
+        }
+        torch.save(checkpoint, path)
 
     def load(self, path):
-        self.load_state_dict(torch.load(path))
+        checkpoint = torch.load(path)
+        self.load_state_dict(checkpoint["model"])
+        self.obs_rms = checkpoint["obs_rms"]
 
     def get_sequence_encoder(self, type):
         sequence_encoder_map = {
