@@ -13,9 +13,12 @@ class HistoryWrapper(gym.Wrapper):
 
         self.history_obs = np.zeros((self.history_length, *self.obs_dim))
         self.history_obs_delta = np.zeros((self.history_length, *self.obs_dim))
+        self.history_obs_back_delta = np.zeros((self.history_length, *self.obs_dim))
         self.history_act = np.zeros((self.history_length, *self.action_space.shape))
+        self.history_mask = np.zeros((self.history_length,))
         self.future_obs = np.zeros((self.future_length, *self.obs_dim))
         self.future_obs_delta = np.zeros((self.future_length, *self.obs_dim))
+        self.future_obs_back_delta = np.zeros((self.future_length, *self.obs_dim))
         self.future_act = np.zeros((self.future_length, *self.action_space.shape))
         self.future_mask = np.zeros((self.future_length,))
         self.true = np.ones((1, 1))
@@ -25,9 +28,12 @@ class HistoryWrapper(gym.Wrapper):
             "obs" : env.observation_space,
             "history_obs" : env.observation_space.__class__(-np.inf, np.inf, (history_length, *self.obs_dim)),
             "history_obs_delta" : env.observation_space.__class__(-np.inf, np.inf, (history_length, *self.obs_dim)),
+            "history_obs_back_delta" : env.observation_space.__class__(-np.inf, np.inf, (history_length, *self.obs_dim)),
             "history_act" : env.action_space.__class__(-np.inf, np.inf, (history_length, *self.action_space.shape)),
+            "history_mask" : env.observation_space.__class__(-np.inf, np.inf, (history_length, 1)),
             "future_obs" : env.observation_space.__class__(-np.inf, np.inf, (future_length, *self.obs_dim)),
             "future_obs_delta" : env.observation_space.__class__(-np.inf, np.inf, (future_length, *self.obs_dim)),
+            "future_obs_back_delta" : env.observation_space.__class__(-np.inf, np.inf, (future_length, *self.obs_dim)),
             "future_act" : env.action_space.__class__(-np.inf, np.inf, (future_length, *self.action_space.shape)),
             "future_mask" : env.observation_space.__class__(-np.inf, np.inf, (future_length, 1)),
         })
@@ -38,10 +44,13 @@ class HistoryWrapper(gym.Wrapper):
         # done = terminated or truncated
         
         self.history_obs = np.concatenate([self.history_obs[1:], self.prev_state[None,:]], axis=0)
-        self.history_obs_delta = np.concatenate([self.history_obs_delta[1:], (observation - self.prev_state)[None,:]], axis=0)
+        self.history_obs_delta = np.concatenate([self.history_obs_delta[1:], self.targ_proc(self.prev_state, observation)[None,:]], axis=0)
+        self.history_obs_back_delta = np.concatenate([self.history_obs_back_delta[1:], self.targ_proc(observation, self.prev_state)[None,:]], axis=0)
         self.history_act = np.concatenate([self.history_act[1:], action[None,:]], axis=0)
+        self.history_mask = np.concatenate([self.history_mask[1:], self.true], axis=0)
         self.future_obs = np.concatenate([self.future_obs[1:], self.prev_state[None,:]], axis=0)
-        self.future_obs_delta = np.concatenate([self.future_obs_delta[1:], (observation - self.prev_state)[None,:]], axis=0)
+        self.future_obs_delta = np.concatenate([self.future_obs_delta[1:], self.targ_proc(self.prev_state, observation)[None,:]], axis=0)
+        self.future_obs_back_delta = np.concatenate([self.future_obs_back_delta[1:], self.targ_proc(observation, self.prev_state)[None,:]], axis=0)
         self.future_act = np.concatenate([self.future_act[1:], action[None,:]], axis=0)
         self.future_mask = np.concatenate([self.future_mask[1:], self.true], axis=0)
         self.prev_state = observation
@@ -50,9 +59,12 @@ class HistoryWrapper(gym.Wrapper):
         history = {
             "history_obs": self.history_obs.copy(),
             "history_obs_delta": self.history_obs_delta.copy(),
+            "history_obs_back_delta": self.history_obs_back_delta.copy(),
             "history_act": self.history_act.copy(),
+            "history_mask": self.history_mask.copy(),
             "future_obs": self.future_obs.copy(),
             "future_obs_delta": self.future_obs_delta.copy(),
+            "future_obs_back_delta": self.future_obs_back_delta.copy(),
             "future_act": self.future_act.copy(),
             "future_mask": self.future_mask.copy(),
         }
@@ -65,9 +77,12 @@ class HistoryWrapper(gym.Wrapper):
 
         self.history_obs = np.zeros((self.history_length, *self.obs_dim))
         self.history_obs_delta = np.zeros((self.history_length, *self.obs_dim))
+        self.history_obs_back_delta = np.zeros((self.history_length, *self.obs_dim))
         self.history_act = np.zeros((self.history_length, *self.action_space.shape))
+        self.history_mask = np.zeros((self.history_length, 1))
         self.future_obs = np.zeros((self.future_length, *self.obs_dim))
         self.future_obs_delta = np.zeros((self.future_length, *self.obs_dim))
+        self.future_obs_back_delta = np.zeros((self.future_length, *self.obs_dim))
         self.future_act = np.zeros((self.future_length, *self.action_space.shape))
         self.future_mask = np.zeros((self.future_length, 1))
         self.prev_state = observation
@@ -76,9 +91,12 @@ class HistoryWrapper(gym.Wrapper):
         history = {
             "history_obs": self.history_obs.copy(),
             "history_obs_delta": self.history_obs_delta.copy(),
+            "history_obs_back_delta": self.history_obs_back_delta.copy(),
             "history_act": self.history_act.copy(),
+            "history_mask": self.history_mask.copy(),
             "future_obs": self.future_obs.copy(),
             "future_obs_delta": self.future_obs_delta.copy(),
+            "future_obs_back_delta": self.future_obs_back_delta.copy(),
             "future_act": self.future_act.copy(),
             "future_mask": self.future_mask.copy(),
         }

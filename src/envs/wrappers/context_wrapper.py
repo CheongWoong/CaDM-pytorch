@@ -7,8 +7,7 @@ class ContextWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
 
-        context_dim = self.num_modifiable_parameters()
-        self.context = self.get_sim_parameters()
+        context_dim = self.num_modifiable_parameters
         
         context_observation_space = {
             "context" : gym.spaces.Box(-np.inf, np.inf, (context_dim,))

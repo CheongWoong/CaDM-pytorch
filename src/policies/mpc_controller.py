@@ -4,6 +4,7 @@ https://github.com/iclavera/learning_to_adapt
 """
 
 from copy import deepcopy
+import numpy as np
 import torch
 
 from .base import Policy
@@ -39,8 +40,8 @@ class MPCController(Policy):
 
         self.action_low = torch.from_numpy(self.action_space.low).to(self.device)
         self.action_high = torch.from_numpy(self.action_space.high).to(self.device)
-        self.prev_sol = torch.zeros((args.num_envs, self.horizon, args.action_dim), device=self.device)
-        self.init_var = torch.ones((args.num_envs, self.horizon, args.action_dim), device=self.device)
+        self.prev_sol = torch.zeros((args.num_rollouts, self.horizon, args.action_dim), device=self.device)
+        self.init_var = torch.ones((args.num_rollouts, self.horizon, args.action_dim), device=self.device)
 
         super().__init__(envs=envs)
 
@@ -48,8 +49,13 @@ class MPCController(Policy):
     def vectorized(self):
         return True
 
-    def reset(self, dones):
-        self.prev_sol = torch.where(torch.as_tensor(dones[:, None, None], device=self.device), 0., self.prev_sol)
+    def reset(self, dones=None):
+        if dones is None:
+            self.prev_sol *= 0.
+        elif isinstance(dones, np.ndarray):
+            self.prev_sol = torch.where(torch.as_tensor(dones[:, None, None], device=self.device) > 0, 0., self.prev_sol)
+        else:
+            self.prev_sol = torch.where(dones[:, None, None] > 0, 0., self.prev_sol)
 
     def get_action(self, observation):
         if self.use_cem:
@@ -88,9 +94,12 @@ class MPCController(Policy):
 
             returns = 0
             observation = torch.tile(torch.reshape(observations["obs"], [m, 1, 1, -1]), [1, n, p, 1])
-            reshaped_context = torch.permute(context, (1, 0, 2))
-            reshaped_context = torch.tile(torch.reshape(reshaped_context, [m, 1, ensemble_size, -1]), [1, n, int(p/ensemble_size), 1])
-            reshaped_context = torch.reshape(torch.permute(reshaped_context, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
+            if context is not None:
+                reshaped_context = torch.permute(context, (1, 0, 2))
+                reshaped_context = torch.tile(torch.reshape(reshaped_context, [m, 1, ensemble_size, -1]), [1, n, int(p/ensemble_size), 1])
+                reshaped_context = torch.reshape(torch.permute(reshaped_context, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
+            else:
+                reshaped_context = None
             for t in range(h):
                 action = actions[:, :, t]
                 reshaped_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
@@ -104,8 +113,8 @@ class MPCController(Policy):
                 delta = torch.reshape(delta, [p, m, n, -1])
                 delta = torch.permute(delta, [1, 2, 0, 3])
 
-                obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], device=self.device)
-                obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], device=self.device)
+                obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], dtype=torch.float32, device=self.device)
+                obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], dtype=torch.float32, device=self.device)
                 delta_mean = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].mean[-1][None, None, None, :], device=self.device)
                 delta_var = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].var[-1][None, None, None, :], device=self.device)
                 denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean
@@ -152,10 +161,13 @@ class MPCController(Policy):
             if t == 0:
                 cand_action = action[:, :, 0]
                 observation = torch.tile(torch.reshape(observations["obs"], [m, 1, 1, -1]), [1, n, p, 1])
-                context = torch.permute(context, (1, 0, 2))
-                context = torch.tile(torch.reshape(context, [m, 1, ensemble_size, -1]), [1, n, int(p/ensemble_size), 1])
-                reshaped_context = torch.reshape(torch.permute(context, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
-            
+                if context is not None:
+                    context = torch.permute(context, (1, 0, 2))
+                    context = torch.tile(torch.reshape(context, [m, 1, ensemble_size, -1]), [1, n, int(p/ensemble_size), 1])
+                    reshaped_context = torch.reshape(torch.permute(context, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
+                else:
+                    reshaped_context = None
+                
             reshaped_observation = torch.reshape(torch.permute(observation, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
             reshaped_action = action[:, :, t]
@@ -168,8 +180,8 @@ class MPCController(Policy):
             delta = torch.reshape(delta, [p, m, n, -1])
             delta = torch.permute(delta, [1, 2, 0, 3])
 
-            obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], device=self.device)
-            obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], device=self.device)
+            obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], dtype=torch.float32, device=self.device)
+            obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], dtype=torch.float32, device=self.device)
             delta_mean = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].mean[-1][None, None, None, :], device=self.device)
             delta_var = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].var[-1][None, None, None, :], device=self.device)
             denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean

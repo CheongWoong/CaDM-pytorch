@@ -59,16 +59,16 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
 
     # env setup
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    env_config = OmegaConf.load(os.path.join(dir_path, "../configs/env_configs", args.env_id+".yaml"))
+    env_config = OmegaConf.load(os.path.join(dir_path, "../configs/env_configs", args.dataset+".yaml"))
     env_config = getattr(env_config, args.randomization_id)
     env_config = OmegaConf.to_object(env_config)
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, args.run_name + "_test", args.history_length, args.future_length, env_config, args.gui) for i in range(args.num_envs)]
+        [make_env(args.dataset, i, args.capture_video, args.run_name + "_test", args.history_length, args.future_length, env_config, args.gui) for i in range(args.num_rollouts)]
     )
 
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
-    args.context_dim = envs.envs[0].num_modifiable_parameters()
+    args.context_dim = envs.envs[0].num_modifiable_parameters
 
     dynamics_model = DynamicsModel(args).to(device)
     dynamics_model.load(checkpoint)
@@ -89,7 +89,7 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
     episodic_lengths = []
 
     while True:
-        global_step += 1 * args.num_envs
+        global_step += 1 * args.num_rollouts
 
         # ALGO LOGIC: action logic
         with torch.no_grad():
@@ -100,7 +100,8 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
         for key in next_obs:
             next_obs[key] = torch.Tensor(next_obs[key]).to(device)
         done = np.logical_or(terminated, truncated)
-        envs.envs[0].render()
+        if args.gui:
+            envs.envs[0].render()
         
         # Only print when at least 1 env is done
         if "final_info" not in infos:
@@ -114,17 +115,17 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
                 continue
             print(f"checkpoint={checkpoint_idx}, global_step={global_step}, episodic_return={info['episode']['r']}, episodic_length={info['episode']['l']}")
 
-            if len(episodic_returns) < args.num_episodes:
+            if len(episodic_returns) < args.num_test:
                 episodic_returns.append(info['episode']['r'])
                 episodic_lengths.append(info['episode']['l'])
 
-        if len(episodic_returns) == args.num_episodes:
+        if len(episodic_returns) >= args.num_test:
             break
 
-    writer.add_scalar("test/mean_episodic_returns", np.mean(episodic_returns), checkpoint_idx)
-    writer.add_scalar("test/std_episodic_returns", np.std(episodic_returns), checkpoint_idx)
-    writer.add_scalar("test/mean_episodic_lengths", np.mean(episodic_lengths), checkpoint_idx)
-    writer.add_scalar("test/std_episodic_lengths", np.std(episodic_lengths), checkpoint_idx)
+    writer.add_scalar("test("+args.randomization_id+")/mean_episodic_returns", np.mean(episodic_returns), checkpoint_idx)
+    writer.add_scalar("test("+args.randomization_id+")/std_episodic_returns", np.std(episodic_returns), checkpoint_idx)
+    writer.add_scalar("test("+args.randomization_id+")/mean_episodic_lengths", np.mean(episodic_lengths), checkpoint_idx)
+    writer.add_scalar("test("+args.randomization_id+")/std_episodic_lengths", np.std(episodic_lengths), checkpoint_idx)
 
     envs.close()
 
@@ -156,9 +157,10 @@ if __name__ == "__main__":
     test_args.run_name = checkpoint_dir
 
     writer = SummaryWriter(f"runs/{test_args.run_name}")
-    for idx, checkpoint in enumerate(checkpoints):
-        print('[INFO] evaluation starts: checkpoint', idx)
-        evaluate(test_args, checkpoint, idx, writer)
+    for checkpoint in enumerate(checkpoints):
+        checkpoint_idx = int(checkpoint[:-3].split("_")[-1])
+        print('[INFO] evaluation starts: checkpoint', checkpoint_idx)
+        evaluate(test_args, checkpoint, checkpoint_idx, writer)
     writer.close()
 
     #### Save test args

@@ -29,7 +29,7 @@ class DynamicsModel(nn.Module):
         self.decoder_config = getattr(args.decoder, config.decoder_type)
         self.decoder = self.get_decoder(config.decoder_type)
 
-        self.optimizer = optim.Adam(self.parameters(), lr=args.learning_rate, eps=1e-5)
+        self.optimizer = optim.Adam(self.parameters(), lr=args.lr, eps=1e-5)
 
     def forward(self, x):
         context = None
@@ -65,14 +65,14 @@ class DynamicsModel(nn.Module):
         output, _ = self.decoder(x, context)
         return output["forward_prediction"]
 
-    def learn(self, samples):
+    def fit(self, samples):
         self.train()
         args = self.args
 
         batch_size = len(samples["rewards"])
         b_inds = np.arange(batch_size)
         # Optimizing the policy and value network
-        for epoch in range(args.update_epochs):
+        for epoch in range(args.n_epochs):
             np.random.shuffle(b_inds)
             for start in range(0, batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -80,6 +80,8 @@ class DynamicsModel(nn.Module):
 
                 x = {key: samples[key][mb_inds] for key in samples}
                 
+                for key in x:
+                    print(key, x[key].shape)
                 output, loss = self.forward(x)
 
                 self.optimizer.zero_grad()
@@ -87,13 +89,12 @@ class DynamicsModel(nn.Module):
                 nn.utils.clip_grad_norm_(self.parameters(), args.max_grad_norm)
                 self.optimizer.step()
 
-        writer_dict = {}
-        writer_dict["charts/learning_rate"] = self.optimizer.param_groups[0]["lr"]
+        logger_dict = {}
         for key in output:
             if "loss" in key:
-                writer_dict["losses/" + key] = output[key]
+                logger_dict["losses/" + key] = output[key]
         
-        return writer_dict
+        return logger_dict
 
     def save(self, path):
         checkpoint = {

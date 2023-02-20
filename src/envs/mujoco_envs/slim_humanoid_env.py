@@ -1,8 +1,9 @@
-import gymnasium as gym
-from gymnasium import utils
-from gymnasium.envs.mujoco import MuJocoPyEnv
-
 import numpy as np
+import torch
+
+from gymnasium import utils
+from gymnasium.envs.mujoco import MujocoEnv
+from gymnasium.spaces import Box
 
 
 def mass_center(model, sim):
@@ -11,7 +12,7 @@ def mass_center(model, sim):
     return (np.sum(mass * xpos, 0) / np.sum(mass))[0]
 
 
-class SlimHumanoidEnv(MuJocoPyEnv, utils.EzPickle):
+class SlimHumanoidEnv(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": [
             "human",
@@ -22,59 +23,41 @@ class SlimHumanoidEnv(MuJocoPyEnv, utils.EzPickle):
     }
 
     def __init__(self, mass_scale_set=[0.75, 1.0, 1.25], damping_scale_set=[0.75, 1.0, 1.25], **kwargs):
-        observation_space = gym.spaces.Dict(
-            {
-                "obs": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(376,), dtype=np.float64),
-                "context" : gym.spaces.Box(-np.inf, np.inf, (2,), dtype=np.float64)
-            }
+        utils.EzPickle.__init__(
+            self,
+            mass_scale_set,
+            damping_scale_set,
+            **kwargs
         )
-        MuJocoPyEnv.__init__(
+
+        self.obs_dim = 7
+
+        observation_space = Box(
+            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64
+        )
+
+        
+        MujocoEnv.__init__(
             self, "humanoid.xml", 5, observation_space=observation_space, **kwargs
         )
-        utils.EzPickle.__init__(self, mass_scale_set, damping_scale_set, **kwargs)
 
         self.original_mass = np.copy(self.model.body_mass)
         self.original_damping = np.copy(self.model.dof_damping)
-
         self.mass_scale_set = mass_scale_set
         self.damping_scale_set = damping_scale_set
 
-    def _get_obs(self):
-        data = self.sim.data
-        return np.concatenate(
-            [
-                self.pos_after.flat,
-                data.qpos.flat[2:],
-                data.qvel.flat,
-                data.cinert.flat,
-                data.cvel.flat,
-                data.qfrc_actuator.flat,
-                data.cfrc_ext.flat,
-            ]
-        )
-
-    def obs_preproc(self, obs):
-        return obs[..., 1:]
-
-    def obs_postproc(self, obs, pred):
-        return obs + pred
-
-    def targ_proc(self, obs, next_obs):
-        return next_obs - obs
-
     def step(self, a):
-        self.pos_before = mass_center(self.model, self.sim).copy()
+        old_obs = np.copy(self._get_obs())
         self.do_simulation(a, self.frame_skip)
-        self.pos_after = mass_center(self.model, self.sim).copy()
-
-        alive_bonus = 5.0
-        lin_vel_cost = 1.25 * (self.pos_after - self.pos_before) / self.dt
-        quad_ctrl_cost = 0.1 * np.square(a).sum()
+        data = self.data
+        lin_vel_cost = 0.25 / 0.015 * old_obs[..., 22]
+        quad_ctrl_cost = 0.1 * np.square(data.ctrl).sum()
         quad_impact_cost = 0.0
-
-        reward = lin_vel_cost - quad_ctrl_cost - quad_impact_cost + alive_bonus
-        qpos = self.sim.data.qpos
+        qpos = self.data.qpos
         terminated = bool((qpos[2] < 1.0) or (qpos[2] > 2.0))
+        alive_bonus = 5.0 * (1 - float(terminated))
+        terminated = False
+        reward = lin_vel_cost - quad_ctrl_cost - quad_impact_cost + alive_bonus
 
         if self.render_mode == "human":
             self.render()
@@ -91,6 +74,19 @@ class SlimHumanoidEnv(MuJocoPyEnv, utils.EzPickle):
             ),
         )
 
+    def _get_obs(self):
+        data = self.data
+        return np.concatenate([data.qpos.flat[2:], data.qvel.flat])
+
+    def obs_preproc(self, obs):
+        return obs
+
+    def obs_postproc(self, obs, pred):
+        return obs + pred
+
+    def targ_proc(self, obs, next_obs):
+        return next_obs - obs
+
     def reset_model(self):
         c = 0.01
         self.set_state(
@@ -98,41 +94,46 @@ class SlimHumanoidEnv(MuJocoPyEnv, utils.EzPickle):
             self.init_qvel
             + self.np_random.uniform(low=-c, high=c, size=self.model.nv,),
         )
-        self.pos_after = self.pos_before = mass_center(self.model, self.sim).copy()
-
-        random_index = self.np_random.randint(len(self.mass_scale_set))
-        self.mass_scale = self.mass_scale_set[random_index]
-
-        random_index = self.np_random.randint(len(self.damping_scale_set))
-        self.damping_scale = self.damping_scale_set[random_index]
+        pos_before = mass_center(self.model, self)
+        self.prev_pos = np.copy(pos_before)
 
         self.change_env()
 
         return self._get_obs()
 
     def reward(self, obs, action, next_obs):
-        alive_bonus = 5.0
-        lin_vel_cost = 1.25 * (next_obs[..., 0] - obs[..., 0]) / self.dt
-        quad_ctrl_cost = 0.1 * np.square(action).sum(axis=-1)
+        ctrl = action
+
+        lin_vel_cost = 0.25 / 0.015 * next_obs[..., 22]
+        quad_ctrl_cost = 0.1 * np.sum(np.square(ctrl), axis=-1)
         quad_impact_cost = 0.0
+
+        done = bool((next_obs[..., 1] < 1.0) or (next_obs[..., 1] > 2.0))
+        alive_bonus = 5.0 * (not done)
 
         reward = lin_vel_cost - quad_ctrl_cost - quad_impact_cost + alive_bonus
 
         return reward
 
     def change_env(self):
+        # Change mass
+        random_index = self.np_random.integers(len(self.mass_scale_set))
+        self.mass_scale = self.mass_scale_set[random_index]
         mass = np.copy(self.original_mass)
-        damping = np.copy(self.original_damping)
-
         mass *= self.mass_scale
-        damping *= self.damping_scale
-
         self.model.body_mass[:] = mass
+
+        # Change damping
+        random_index = self.np_random.integers(len(self.damping_scale_set))
+        self.damping_scale = self.damping_scale_set[random_index]
+        damping = np.copy(self.original_damping)
+        damping *= self.damping_scale
         self.model.dof_damping[:] = damping
 
     def get_sim_parameters(self):
         return np.array([self.mass_scale, self.damping_scale])
 
+    @property
     def num_modifiable_parameters(self):
         return 2
 

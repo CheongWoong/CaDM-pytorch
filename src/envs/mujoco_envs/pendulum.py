@@ -17,56 +17,6 @@ DEFAULT_Y = 1.0
 
 
 class PendulumEnv(gym.Env):
-    """
-    ## Description
-    The inverted pendulum swingup problem is based on the classic problem in control theory.
-    The system consists of a pendulum attached at one end to a fixed point, and the other end being free.
-    The pendulum starts in a random position and the goal is to apply torque on the free end to swing it
-    into an upright position, with its center of gravity right above the fixed point.
-    The diagram below specifies the coordinate system used for the implementation of the pendulum's
-    dynamic equations.
-    ![Pendulum Coordinate System](/_static/diagrams/pendulum.png)
-    -  `x-y`: cartesian coordinates of the pendulum's end in meters.
-    - `theta` : angle in radians.
-    - `tau`: torque in `N m`. Defined as positive _counter-clockwise_.
-    ## Action Space
-    The action is a `ndarray` with shape `(1,)` representing the torque applied to free end of the pendulum.
-    | Num | Action | Min  | Max |
-    |-----|--------|------|-----|
-    | 0   | Torque | -2.0 | 2.0 |
-    ## Observation Space
-    The observation is a `ndarray` with shape `(3,)` representing the x-y coordinates of the pendulum's free
-    end and its angular velocity.
-    | Num | Observation      | Min  | Max |
-    |-----|------------------|------|-----|
-    | 0   | x = cos(theta)   | -1.0 | 1.0 |
-    | 1   | y = sin(theta)   | -1.0 | 1.0 |
-    | 2   | Angular Velocity | -8.0 | 8.0 |
-    ## Rewards
-    The reward function is defined as:
-    *r = -(theta<sup>2</sup> + 0.1 * theta_dt<sup>2</sup> + 0.001 * torque<sup>2</sup>)*
-    where `$\theta$` is the pendulum's angle normalized between *[-pi, pi]* (with 0 being in the upright position).
-    Based on the above equation, the minimum reward that can be obtained is
-    *-(pi<sup>2</sup> + 0.1 * 8<sup>2</sup> + 0.001 * 2<sup>2</sup>) = -16.2736044*,
-    while the maximum reward is zero (pendulum is upright with zero velocity and no torque applied).
-    ## Starting State
-    The starting state is a random angle in *[-pi, pi]* and a random angular velocity in *[-1,1]*.
-    ## Episode Truncation
-    The episode truncates at 200 time steps.
-    ## Arguments
-    - `g`: acceleration of gravity measured in *(m s<sup>-2</sup>)* used to calculate the pendulum dynamics.
-      The default value is g = 10.0 .
-    ```python
-    import gymnasium as gym
-    gym.make('Pendulum-v1', g=9.81)
-    ```
-    On reset, the `options` parameter allows the user to change the bounds used to determine
-    the new random state.
-    ## Version History
-    * v1: Simplify the math equations, no difference in behavior.
-    * v0: Initial versions release (1.0.0)
-    """
-
     metadata = {
         "render_modes": ["human", "rgb_array"],
         "render_fps": 30,
@@ -74,16 +24,14 @@ class PendulumEnv(gym.Env):
 
     def __init__(self,
         render_mode: Optional[str] = None,
-        g=10.0,
         mass_set=[0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.20, 1.25], 
         length_set=[0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.20, 1.25]
     ):
         self.max_speed = 8
         self.max_torque = 2.0
         self.dt = 0.05
-        self.g = g
-        self.m = 1.0
-        self.l = 1.0
+        self.mass = 1.0
+        self.length = 1.0
 
         self.render_mode = render_mode
 
@@ -101,54 +49,49 @@ class PendulumEnv(gym.Env):
         )
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
 
-        #####
         self.mass_set = mass_set
         self.length_set = length_set
-        #####
 
     def step(self, u):
-        th, thdot = self.state  # th := theta
-
-        g = self.g
-        m = self.m
-        l = self.l
+        th, thdot = self.state
+        g = 10.0
         dt = self.dt
 
         u = np.clip(u, -self.max_torque, self.max_torque)[0]
-        self.last_u = u  # for rendering
-        costs = angle_normalize(th) ** 2 + 0.1 * thdot**2 + 0.001 * (u**2)
+        self.last_u = u
+        angle_normalize = ((th+np.pi) % (2*np.pi))-np.pi
 
-        newthdot = thdot + (3 * g / (2 * l) * np.sin(th) + 3.0 / (m * l**2) * u) * dt
+        costs = angle_normalize**2 + .1*thdot**2 + .001*((u/2.0)**2) # original
+
+        newthdot = thdot + (-3*g/(2*self.length) * np.sin(th + np.pi) + 3./(self.mass*self.length**2)*u) * dt
+        newth = th + newthdot*dt
         newthdot = np.clip(newthdot, -self.max_speed, self.max_speed)
-        newth = th + newthdot * dt
+        normalized = ((newth+np.pi) % (2*np.pi))-np.pi
 
         self.state = np.array([newth, newthdot])
+
+        # Extra calculations for is_success()
+        # TODO(cpacker): be consistent in increment before or after func body
+        self.nsteps += 1
+        # Track how long angle has been < pi/3
+        if -np.pi/3 <= normalized and normalized <= np.pi/3:
+            self.nsteps_vertical += 1
+        else:
+            self.nsteps_vertical = 0
+        # Success if if angle has been kept at vertical for 100 steps
+        target = 100
+        if self.nsteps_vertical >= target:
+            #print("[SUCCESS]: nsteps is {}, nsteps_vertical is {}, reached target {}".format(
+            #      self.nsteps, self.nsteps_vertical, target))
+            self.success = True
+        else:
+            #print("[NO SUCCESS]: nsteps is {}, nsteps_vertical is {}, target {}".format(
+            #      self.nsteps, self.nsteps_vertical, target))
+            self.success = False
 
         if self.render_mode == "human":
             self.render()
         return self._get_obs(), -costs, False, False, {}
-
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
-        super().reset(seed=seed)
-        if options is None:
-            high = np.array([DEFAULT_X, DEFAULT_Y])
-        else:
-            # Note that if you use custom reset bounds, it may lead to out-of-bound
-            # state/observations.
-            x = options.get("x_init") if "x_init" in options else DEFAULT_X
-            y = options.get("y_init") if "y_init" in options else DEFAULT_Y
-            x = utils.verify_number_and_cast(x)
-            y = utils.verify_number_and_cast(y)
-            high = np.array([x, y])
-        low = -high  # We enforce symmetric limits.
-        self.state = self.np_random.uniform(low=low, high=high)
-        self.last_u = None
-
-        self.change_env() #####
-
-        if self.render_mode == "human":
-            self.render()
-        return self._get_obs(), {}
 
     def _get_obs(self):
         theta, thetadot = self.state
@@ -163,28 +106,50 @@ class PendulumEnv(gym.Env):
     def targ_proc(self, obs, next_obs):
         return next_obs - obs
 
-    def change_env(self):
-        random_index = self.np_random.integers(len(self.mass_set))
-        self.m = self.mass_set[random_index]
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
+        # Extra state for is_success()
+        self.nsteps = 0
+        self.nsteps_vertical = 0
 
-        random_index = self.np_random.integers(len(self.length_set))
-        self.l = self.length_set[random_index]        
+        low = np.array([(7/8)*np.pi, -0.2])
+        high = np.array([(9/8)*np.pi, 0.2])
 
-    def get_sim_parameters(self):
-        return np.array([self.m, self.l])
+        theta, thetadot = self.np_random.uniform(low=low, high=high)
+        theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
 
-    def num_modifiable_parameters(self):
-        return 2
+        self.state = np.array([theta, thetadot])
+
+        self.last_u = None
+
+        self.change_env()
+
+        if self.render_mode == "human":
+            self.render()
+        return self._get_obs(), {}
 
     def reward(self, obs, action, next_obs):
-        th, thdot = torch.atan2(next_obs[..., 1], next_obs[..., 0]), next_obs[..., 2]
+        theta = torch.atan2(next_obs[...,1],next_obs[...,0])
+        theta_normalize = ((theta + np.pi) % (2 * np.pi)) - np.pi
+        thetadot  = next_obs[...,2]
+        torque = np.clip(action, -self.max_torque, self.max_torque)
+        torque = np.reshape(torque, torque.shape[:-1])
+        cost = theta_normalize**2 + 0.1*(thetadot)**2 + 0.001*(torque**2) # original
+        return -cost
 
-        action = torch.clamp(action, -self.max_torque, self.max_torque)[0]
-        costs = angle_normalize(th) ** 2 + 0.1 * thdot**2 + 0.001 * (action**2)
+    def change_env(self):
+        random_index = self.np_random.integers(len(self.mass_set))
+        self.mass = self.mass_set[random_index]
 
-        reward = -costs
+        random_index = self.np_random.integers(len(self.length_set))
+        self.length = self.length_set[random_index]        
 
-        return reward
+    def get_sim_parameters(self):
+        return np.array([self.mass, self.length])
+
+    @property
+    def num_modifiable_parameters(self):
+        return 2
 
     def render(self):
         if self.render_mode is None:

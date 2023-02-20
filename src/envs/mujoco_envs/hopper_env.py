@@ -1,12 +1,20 @@
-import gymnasium as gym
-from gymnasium import utils
-from gymnasium.envs.mujoco import MuJocoPyEnv
-
 import numpy as np
 import torch
 
+from gymnasium import utils
+from gymnasium.envs.mujoco import MujocoEnv
+from gymnasium.spaces import Box
 
-class HopperEnv(MuJocoPyEnv, utils.EzPickle):
+
+DEFAULT_CAMERA_CONFIG = {
+    "trackbodyid": 2,
+    "distance": 3.0,
+    "lookat": np.array((0.0, 0.0, 1.15)),
+    "elevation": -20.0,
+}
+
+
+class HopperEnv(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": [
             "human",
@@ -16,52 +24,62 @@ class HopperEnv(MuJocoPyEnv, utils.EzPickle):
         "render_fps": 125,
     }
 
-    def __init__(self, mass_scale_set=[0.75, 1.0, 1.25], damping_scale_set=[0.75, 1.0, 1.25], **kwargs):
-        observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float64)
-        MuJocoPyEnv.__init__(
-            self, "hopper.xml", 4, observation_space=observation_space, **kwargs
+    def __init__(
+        self,
+        mass_scale_set=[0.5, 0.75, 1.0, 1.25, 1.5],
+        damping_scale_set=[0.5, 0.75, 1.0, 1.25, 1.5],
+        **kwargs
+    ):
+        utils.EzPickle.__init__(
+            self,
+            mass_scale_set,
+            damping_scale_set,
+            **kwargs
         )
-        utils.EzPickle.__init__(self, mass_scale_set, damping_scale_set, **kwargs)
+
+        self.obs_dim = 7
+
+        observation_space = Box(
+            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64
+        )
+
+        MujocoEnv.__init__(
+            self,
+            "hopper.xml",
+            4,
+            observation_space=observation_space,
+            default_camera_config=DEFAULT_CAMERA_CONFIG,
+            **kwargs
+        )
 
         self.original_mass = np.copy(self.model.body_mass)
         self.original_damping = np.copy(self.model.dof_damping)
-
         self.mass_scale_set = mass_scale_set
         self.damping_scale_set = damping_scale_set
 
-    def step(self, a):
-        self.posbefore = self.sim.data.qpos[0].copy()
-        self.do_simulation(a, self.frame_skip)
-        self.posafter, height, ang = self.sim.data.qpos[0:3].copy()
-
+    def step(self, action):
+        posbefore = self.data.qpos[0]
+        self.do_simulation(action, self.frame_skip)
+        posafter = self.data.qpos[0]
         alive_bonus = 1.0
-        reward = (self.posafter - self.posbefore) / self.dt
+        reward = (posafter - posbefore) / self.dt
         reward += alive_bonus
-        reward -= 1e-3 * np.square(a).sum()
-        s = self.state_vector()
-        terminated = not (
-            np.isfinite(s).all()
-            and (np.abs(s[2:]) < 100).all()
-            and (height > 0.7)
-            and (abs(ang) < 0.2)
-        )
-        ob = self._get_obs()
+        reward -= 1e-3 * np.square(action).sum()
+        terminated = False
+        observation = self._get_obs()
+        info = {}
 
         if self.render_mode == "human":
             self.render()
-        return ob, reward, terminated, False, {}
+        return observation, reward, terminated, False, info
 
     def _get_obs(self):
         return np.concatenate(
-            [
-                self.posafter.flat,
-                self.sim.data.qpos.flat[1:],
-                np.clip(self.sim.data.qvel.flat, -10, 10)
-            ]
+            [self.data.qpos.flat[1:], np.clip(self.data.qvel.flat, -10, 10)]
         )
 
     def obs_preproc(self, obs):
-        return obs[..., 1:]
+        return obs
 
     def obs_postproc(self, obs, pred):
         return obs + pred
@@ -78,53 +96,45 @@ class HopperEnv(MuJocoPyEnv, utils.EzPickle):
         )
         self.set_state(qpos, qvel)
 
-        self.posafter = self.posbefore = self.sim.data.qpos[0].copy()
-
-        random_index = self.np_random.integers(len(self.mass_scale_set))
-        self.mass_scale = self.mass_scale_set[random_index]
-
-        random_index = self.np_random.integers(len(self.damping_scale_set))
-        self.damping_scale = self.damping_scale_set[random_index]
-
         self.change_env()
 
-        return self._get_obs()
+        observation = self._get_obs()
+        return observation
 
-    def reward(self, obs, act, next_obs):
+    def reward(self, obs, action, next_obs):
+        velocity = next_obs[..., 5]
         alive_bonus = 1.0
-        reward = (next_obs[..., 0] - obs[..., 0]) / self.dt
+        reward = velocity
         reward += alive_bonus
-        reward -= 1e-3 * np.square(act).sum(axis=-1)
-
-        return reward
-
-    def torch_reward(self, obs, act, next_obs):
-        alive_bonus = 1.0
-        reward = (next_obs[..., 0] - obs[..., 0]) / self.dt
-        reward += alive_bonus
-        reward -= 1e-3 * torch.square(act).sum(axis=-1)
-
+        reward -= 1e-3 * torch.square(action).sum(dim=-1)
         return reward
 
     def change_env(self):
+        # Change mass
+        random_index = self.np_random.integers(len(self.mass_scale_set))
+        self.mass_scale = self.mass_scale_set[random_index]
         mass = np.copy(self.original_mass)
-        damping = np.copy(self.original_damping)
-
         mass *= self.mass_scale
-        damping *= self.damping_scale
-
         self.model.body_mass[:] = mass
+
+        # Change damping
+        random_index = self.np_random.integers(len(self.damping_scale_set))
+        self.damping_scale = self.damping_scale_set[random_index]
+        damping = np.copy(self.original_damping)
+        damping *= self.damping_scale
         self.model.dof_damping[:] = damping
 
     def get_sim_parameters(self):
         return np.array([self.mass_scale, self.damping_scale])
-    
+
+    @property
     def num_modifiable_parameters(self):
         return 2
 
     def viewer_setup(self):
         assert self.viewer is not None
-        self.viewer.cam.trackbodyid = 2
-        self.viewer.cam.distance = self.model.stat.extent * 0.75
-        self.viewer.cam.lookat[2] = 1.15
-        self.viewer.cam.elevation = -20
+        for key, value in DEFAULT_CAMERA_CONFIG.items():
+            if isinstance(value, np.ndarray):
+                getattr(self.viewer.cam, key)[:] = value
+            else:
+                setattr(self.viewer.cam, key, value)

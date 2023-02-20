@@ -25,7 +25,7 @@ def parse_args():
         help="whether to capture videos of the agent performances (check out `videos` folder)")
 
     # Arguments
-    parser.add_argument("--env-id", type=str, default="cartpole",
+    parser.add_argument("--dataset", type=str, default="cartpole",
         help="the id of the environment")
     # DM (Dynamics Model) configs
     parser.add_argument("--history-length", type=int, default=10,
@@ -38,7 +38,7 @@ def parse_args():
         help="whether to sample random future transitions instead of consecutive ones")
     parser.add_argument("--back-coeff", type=float, default=0.5,
         help="the coefficient for backward dynamics loss")
-    parser.add_argument("--hidden-dim", type=int, default=200,
+    parser.add_argument("--hidden-size", type=int, default=200,
         help="the size of hidden dimension")
     parser.add_argument("--deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="whether to use deterministic neural networks or not")
@@ -49,15 +49,15 @@ def parse_args():
     # Training configs
     parser.add_argument("--n-itr", type=int, default=20,
         help="the number of iterations")
-    parser.add_argument("--num-envs", type=int, default=10,
+    parser.add_argument("--num-rollouts", type=int, default=10,
         help="the number of parallel game environments")
     parser.add_argument("--minibatch-size", type=int, default=256,
         help="the number of mini-batches")
-    parser.add_argument("--learning-rate", type=float, default=0.001,
+    parser.add_argument("--lr", type=float, default=0.001,
         help="the learning rate of the optimizer")
-    parser.add_argument("--update-epochs", type=int, default=5,
+    parser.add_argument("--n-epochs", type=int, default=5,
         help="the K epochs to update the model")
-    parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--max-grad-norm", type=float, default=0.5,
         help="the maximum norm for the gradient clipping")
@@ -78,6 +78,8 @@ def parse_args():
         help="the alpha value for CEM")
     parser.add_argument("--n-particles", type=int, default=20,
         help="the number of particles (PE-TS)")
+    parser.add_argument("--initial-random-samples", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="whether to use random action for the initial iteration step or not")
     # other configs
     parser.add_argument("--save-freq", type=int, default=10)
     parser.add_argument("--dynamics-model-type", type=str)
@@ -99,8 +101,8 @@ def test_parse_args():
 
     parser.add_argument("--checkpoint-path", type=str)
     parser.add_argument("--seed", type=int, default=12345)
-    parser.add_argument("--num-envs", type=int, default=10)
-    parser.add_argument("--num-episodes", type=int, default=20)
+    parser.add_argument("--num-rollouts", type=int, default=10)
+    parser.add_argument("--num-test", type=int, default=20)
     parser.add_argument("--gui", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
 
     args = parser.parse_args()

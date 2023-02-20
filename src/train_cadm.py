@@ -59,12 +59,12 @@ if __name__ == "__main__":
         config = OmegaConf.merge(config, override_config)
     vars(args).update(config)
 
-    # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    # run_name = f"{args.dataset}__{args.exp_name}__{args.seed}__{int(time.time())}"
     timestamp = datetime.datetime.now().strftime("%m%d-%H%M%S")
     if args.exp_name:
-        run_name = f"{args.env_id}/{args.dynamics_model_type}/{args.exp_name}"
+        run_name = f"{args.dataset}/{args.dynamics_model_type}/{args.exp_name}"
     else:
-        run_name = f"{args.env_id}/{args.dynamics_model_type}/{timestamp}"
+        run_name = f"{args.dataset}/{args.dynamics_model_type}/{timestamp}"
     if args.track:
         import wandb
 
@@ -92,48 +92,48 @@ if __name__ == "__main__":
     args.device = device = "cuda" if torch.cuda.is_available() and args.cuda else "cpu"
 
     # env setup
-    env_config = OmegaConf.load(os.path.join(dir_path, "../configs/env_configs", args.env_id+".yaml"))
+    env_config = OmegaConf.load(os.path.join(dir_path, "../configs/env_configs", args.dataset+".yaml"))
     env_config = getattr(env_config, args.randomization_id)
     env_config = OmegaConf.to_object(env_config)
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.history_length, args.future_length, env_config) for i in range(args.num_envs)]
+        [make_env(args.dataset, i, args.capture_video, run_name, args.history_length, args.future_length, env_config) for i in range(args.num_rollouts)]
     )
     envs = NormalizeObservation(envs)
     envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
     
-    args.num_steps = envs.envs[0].spec.max_episode_steps
-    args.total_timesteps = args.n_itr * args.num_envs * args.num_steps
+    args.max_path_length = envs.envs[0].spec.max_episode_steps
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
-    args.context_dim = envs.envs[0].num_modifiable_parameters()
+    args.context_dim = envs.envs[0].num_modifiable_parameters
 
     dynamics_model = DynamicsModel(args).to(device)
     policy = MPCController(args, envs, dynamics_model)
-    sampler = Sampler(args, envs, policy, writer)
+    sampler = Sampler(args, envs, policy)
 
     # TRY NOT TO MODIFY: start the game
-    args.global_step = 0
     start_time = time.time()
     
-    args.batch_size = int(args.num_envs * args.num_steps)
-    num_updates = args.total_timesteps // args.batch_size
     video_filenames = set()
 
-    for update in range(1, num_updates + 1):
+    for itr in range(1, args.n_itr + 1):
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
-            frac = 1.0 - (update - 1.0) / num_updates
-            lrnow = frac * args.learning_rate
+            frac = 1.0 - (itr - 1.0) / args.n_itr
+            lrnow = frac * args.lr
             dynamics_model.optimizer.param_groups[0]["lr"] = lrnow
 
-        samples = sampler.sample()
-        writer_dict = dynamics_model.learn(samples)
-        
+        if args.initial_random_samples and itr == 1:
+            paths, logger_dict = sampler.obtain_samples(random=True)
+        else:
+            paths, logger_dict = sampler.obtain_samples()
+        for key, value in logger_dict.items():
+            writer.add_scalar(key, value, itr)
+        samples_data = sampler.process_samples(paths)
+        logger_dict = dynamics_model.fit(samples_data)        
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        for key, value in writer_dict.items():
-            writer.add_scalar(key, value, args.global_step)
-        print("SPS:", int(args.global_step / (time.time() - start_time)))
-        writer.add_scalar("charts/SPS", int(args.global_step / (time.time() - start_time)), args.global_step)
+        for key, value in logger_dict.items():
+            writer.add_scalar(key, value, itr)
+        writer.add_scalar("charts/learning_rate", dynamics_model.optimizer.param_groups[0]["lr"], itr)
 
         if args.track and args.capture_video:
             for filename in os.listdir(f"videos/{run_name}"):
@@ -142,9 +142,9 @@ if __name__ == "__main__":
                     video_filenames.add(filename)
 
         #### Save periodically
-        if update % (num_updates // args.save_freq) == 0 or update == num_updates:
+        if itr % (args.n_itr // args.save_freq) == 0 or itr == args.n_itr:
             dynamics_model.obs_rms = envs.obs_rms
-            dynamics_model.save(os.path.join('runs', run_name, f'checkpoint_{args.global_step}.pt'))
+            dynamics_model.save(os.path.join('runs', run_name, f'checkpoint_{itr}.pt'))
             with open(os.path.join('runs', run_name, 'training_args.json'), 'w') as fout:
                 json.dump(vars(args_for_save), fout, indent=2)
             with open(os.path.join('runs', run_name, 'training_config.yaml'), 'w') as fout:

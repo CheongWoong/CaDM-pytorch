@@ -1,12 +1,17 @@
-import gymnasium as gym
-from gymnasium import utils
-from gymnasium.envs.mujoco import MuJocoPyEnv
-
 import numpy as np
 import torch
 
+from gymnasium import utils
+from gymnasium.envs.mujoco import MujocoEnv
+from gymnasium.spaces import Box
 
-class AntEnv(MuJocoPyEnv, utils.EzPickle):
+
+DEFAULT_CAMERA_CONFIG = {
+    "distance": 4.0,
+}
+
+
+class AntEnv(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": [
             "human",
@@ -16,126 +21,131 @@ class AntEnv(MuJocoPyEnv, utils.EzPickle):
         "render_fps": 20,
     }
 
-    def __init__(self, mass_scale_set=[0.85, 0.9, 0.95, 1.0], damping_scale_set=[1.0], **kwargs):
-        observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(112,), dtype=np.float64)
-        MuJocoPyEnv.__init__(
-            self, "ant.xml", 5, observation_space=observation_space, **kwargs
+    def __init__(
+        self,
+        xml_file="ant.xml",
+        mass_scale_set=[0.75, 0.85, 1.0, 1.15, 1.25],
+        damping_scale_set=[0.75, 0.85, 1.0, 1.15, 1.25],
+        **kwargs
+    ):
+        utils.EzPickle.__init__(
+            self,
+            xml_file,
+            mass_scale_set,
+            damping_scale_set,
+            **kwargs
         )
-        utils.EzPickle.__init__(self, mass_scale_set, damping_scale_set, **kwargs)
+
+        self.obs_dim = 28
+
+        observation_space = Box(
+            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64
+        )
+
+        MujocoEnv.__init__(
+            self,
+            xml_file,
+            5,
+            observation_space=observation_space,
+            default_camera_config=DEFAULT_CAMERA_CONFIG,
+            **kwargs
+        )
 
         self.original_mass = np.copy(self.model.body_mass)
         self.original_damping = np.copy(self.model.dof_damping)
-
         self.mass_scale_set = mass_scale_set
         self.damping_scale_set = damping_scale_set
 
-    def step(self, a):
-        self.xposbefore = self.get_body_com("torso")[0].copy()
-        self.do_simulation(a, self.frame_skip)
-        self.xposafter = self.get_body_com("torso")[0].copy()
+    def step(self, action):
+        self.xposbefore = self.get_body_com("torso")[0]
+        self.do_simulation(action, self.frame_skip)
+        xposafter = self.get_body_com("torso")[0]
 
-        forward_reward = (self.xposafter - self.xposbefore) / self.dt
-        ctrl_cost = 0.005 * np.square(a).sum()
-        contact_cost = 0.0
-        survive_reward = 0.05
-        reward = forward_reward - ctrl_cost - contact_cost + survive_reward
-        state = self.state_vector()
-        not_terminated = (
-            np.isfinite(state).all() and state[2] >= 0.2 and state[2] <= 1.0
-        )
-        terminated = not not_terminated
-        ob = self._get_obs()
+        reward_ctrl = -0.005 * np.square(action).sum()
+        reward_run = (xposafter - self.xposbefore) / self.dt
+        reward_contact = 0.0
+        reward_survive = 0.05
+        reward = reward_run + reward_ctrl + reward_contact + reward_survive
+
+        terminated = False
+        observation = self._get_obs()
+        info = {
+            "reward_forward": reward_run,
+            "reward_ctrl": reward_ctrl,
+            "reward_contact": reward_contact,
+            "reward_survive": reward_survive,
+        }
 
         if self.render_mode == "human":
             self.render()
-        return (
-            ob,
-            reward,
-            terminated,
-            False,
-            dict(
-                reward_forward=forward_reward,
-                reward_ctrl=-ctrl_cost,
-                reward_contact=-contact_cost,
-                reward_survive=survive_reward,
-            ),
-        )
+        return observation, reward, terminated, False, info
 
     def _get_obs(self):
-        obs = np.concatenate(
-            [
-                self.xposafter.flat,
-                self.sim.data.qpos.flat[2:],
-                self.sim.data.qvel.flat,
-                np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
-            ]
-        )
-        return obs
+        return np.concatenate([
+            ((self.get_body_com("torso")[0] - self.xposbefore) / self.dt).flat,
+            self.data.qpos.flat[2:],
+            self.data.qvel.flat,
+        ])
 
     def obs_preproc(self, obs):
         return obs[..., 1:]
 
     def obs_postproc(self, obs, pred):
-        return obs + pred
+        if isinstance(obs, np.ndarray):
+            return np.concatenate([pred[..., :1], obs[..., 1:] + pred[..., 1:]], axis=-1)
+        else:
+            return torch.cat([pred[..., :1], obs[..., 1:] + pred[..., 1:]], dim=-1)
 
     def targ_proc(self, obs, next_obs):
-        return next_obs - obs
+        return np.concatenate([next_obs[..., :1], next_obs[..., 1:] - obs[..., 1:]], axis=-1)
 
     def reset_model(self):
-        qpos = self.init_qpos + self.np_random.uniform(
-            size=self.model.nq, low=-0.1, high=0.1
-        )
-        qvel = self.init_qvel + self.np_random.standard_normal(self.model.nv) * 0.1
+        qpos = self.init_qpos + self.np_random.uniform(size=self.model.nq, low=-.1, high=.1)
+        qvel = self.init_qvel + self.np_random.standard_normal(self.model.nv) * .1
         self.set_state(qpos, qvel)
-
-        self.xposafter = self.xposbefore = self.get_body_com("torso")[0].copy()
-
-        random_index = self.np_random.integers(len(self.mass_scale_set))
-        self.mass_scale = self.mass_scale_set[random_index]
-
-        random_index = self.np_random.integers(len(self.damping_scale_set))
-        self.damping_scale = self.damping_scale_set[random_index]
 
         self.change_env()
 
-        return self._get_obs()
+        observation = self._get_obs()
 
-    def reward(self, obs, act, next_obs):
-        ctrl_cost = 0.005 * np.square(act).sum(axis=-1)
-        forward_reward = (next_obs[..., 0] - obs[..., 0]) / self.dt
-        contact_cost = 0.0
-        survive_reward = 0.05
+        return observation
 
-        reward = forward_reward - ctrl_cost - contact_cost + survive_reward
+    def reward(self, obs, action, next_obs):
+        reward_ctrl = -0.005 * torch.sum(torch.square(action), dim=-1)
+        reward_run = next_obs[..., 0]
 
-        return reward
-
-    def torch_reward(self, obs, act, next_obs):
-        ctrl_cost = 0.005 * torch.square(act).sum(dim=-1)
-        forward_reward = (next_obs[..., 0] - obs[..., 0]) / self.dt
-        contact_cost = 0.0
-        survive_reward = 0.05
-
-        reward = forward_reward - ctrl_cost - contact_cost + survive_reward
+        reward_contact = 0.0
+        reward_survive = 0.05
+        reward = reward_run + reward_ctrl + reward_contact + reward_survive
 
         return reward
 
     def change_env(self):
+        self.xposbefore = self.get_body_com("torso")[0]
+
+        # Change mass
+        random_index = self.np_random.integers(len(self.mass_scale_set))
+        self.mass_scale = self.mass_scale_set[random_index]
         mass = np.copy(self.original_mass)
-        damping = np.copy(self.original_damping)
-
-        mass *= self.mass_scale
-        damping *= self.damping_scale
-
+        mass[2:5] *= self.mass_scale
+        mass[5:8] *= self.mass_scale
+        mass[8:11] *= 1.0/self.mass_scale
+        mass[11:14] *= 1.0/self.mass_scale
         self.model.body_mass[:] = mass
+
+        # Change damping
+        random_index = self.np_random.integers(len(self.damping_scale_set))
+        self.damping_scale = self.damping_scale_set[random_index]
+        damping = np.copy(self.original_damping)
+        damping[2:5] *= self.damping_scale
+        damping[5:8] *= self.damping_scale
+        damping[8:11] *= 1.0/self.damping_scale
+        damping[11:14] *= 1.0/self.damping_scale
         self.model.dof_damping[:] = damping
-    
+
     def get_sim_parameters(self):
         return np.array([self.mass_scale, self.damping_scale])
-    
+
+    @property
     def num_modifiable_parameters(self):
         return 2
-
-    def viewer_setup(self):
-        assert self.viewer is not None
-        self.viewer.cam.distance = self.model.stat.extent * 0.5
