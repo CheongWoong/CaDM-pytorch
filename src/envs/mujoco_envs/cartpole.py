@@ -68,6 +68,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.steps_beyond_terminated = None
 
         self.obs_dim = 4
+        self.proc_obs_dim = self.obs_dim
 
         self.force_set = force_set
         self.length_set = length_set

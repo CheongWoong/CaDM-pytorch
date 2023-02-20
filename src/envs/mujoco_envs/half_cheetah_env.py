@@ -37,6 +37,7 @@ class HalfCheetahEnv(MujocoEnv, utils.EzPickle):
         )
 
         self.obs_dim = 18
+        self.proc_obs_dim = self.obs_dim
 
         observation_space = Box(
             low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64

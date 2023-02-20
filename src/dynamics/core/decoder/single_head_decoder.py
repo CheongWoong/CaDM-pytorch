@@ -10,7 +10,7 @@ class SingleHeadDecoder(nn.Module):
 
         self.args = args
 
-        fc_hidden_sizes = (args.obs_dim + args.action_dim + args.context_hidden_dim,) + (args.hidden_size,) * config.num_layers
+        fc_hidden_sizes = (args.proc_obs_dim + args.action_dim + args.context_hidden_dim,) + (args.hidden_size,) * config.num_layers
         self.fc_forward = create_fc_layers(
             args.ensemble_size,
             fc_hidden_sizes,

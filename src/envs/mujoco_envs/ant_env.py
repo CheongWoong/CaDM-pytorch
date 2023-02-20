@@ -37,6 +37,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         )
 
         self.obs_dim = 28
+        self.proc_obs_dim = self.obs_dim - 1
 
         observation_space = Box(
             low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64

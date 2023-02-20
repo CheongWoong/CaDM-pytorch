@@ -103,6 +103,7 @@ if __name__ == "__main__":
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
     args.sim_param_dim = envs.envs[0].num_modifiable_parameters
+    args.proc_obs_dim = envs.envs[0].proc_obs_dim
     args.obs_preproc = envs.envs[0].obs_preproc
     args.obs_postproc = envs.envs[0].obs_postproc
     args.targ_proc = envs.envs[0].targ_proc

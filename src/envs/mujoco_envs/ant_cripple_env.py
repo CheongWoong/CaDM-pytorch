@@ -41,6 +41,7 @@ class CrippleAntEnv(MujocoEnv, utils.EzPickle):
         )
 
         self.obs_dim = 32
+        self.proc_obs_dim = self.obs_dim
 
         observation_space = Box(
             low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float64
