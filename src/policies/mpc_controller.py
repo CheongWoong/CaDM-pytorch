@@ -90,7 +90,7 @@ class MPCController(Policy):
         for _ in range(self.num_cem_iters):
             repeated_mean = torch.tile(mean[:, None, :, :], [1, n, 1, 1])
             repeated_var = torch.tile(var[:, None, :, :], [1, n, 1, 1])
-            actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var) #####
+            actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var)
             actions = torch.clamp(actions, self.action_low, self.action_high) ##### action mean std CHECK
 
             returns = 0
@@ -103,13 +103,14 @@ class MPCController(Policy):
                 reshaped_context = None
             for t in range(h):
                 action = actions[:, :, t]
-                reshaped_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
+                normalized_action = (action - self.dynamics_model.normalization["act"][0]) / (self.dynamics_model.normalization["act"][1] + 1e-10)
+                reshaped_action = torch.tile(normalized_action[:, :, None, :], [1, 1, p, 1])
                 reshaped_action = torch.reshape(torch.permute(reshaped_action, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
                 proc_obs = self.args.obs_preproc(observation)
-                normalized_proc_obs = proc_obs ##### normalization 추가
+                normalized_proc_obs = (proc_obs - self.dynamics_model.normalization["obs"][0]) / (self.dynamics_model.normalization["obs"][1] + 1e-10)
                 reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
-                x = {"obs": reshaped_observation, "action": reshaped_action}
+                x = {"normalized_proc_obs": reshaped_observation, "normalized_act": reshaped_action}
 
                 delta = self.dynamics_model.predict(x, reshaped_context)
                 delta = torch.reshape(delta, [p, m, n, -1])
@@ -163,14 +164,14 @@ class MPCController(Policy):
                     reshaped_context = None
                 
             proc_obs = self.args.obs_preproc(observation)
-            normalized_proc_obs = proc_obs ##### normalization 추가
+            normalized_proc_obs = (proc_obs - self.dynamics_model.normalization["obs"][0]) / (self.dynamics_model.normalization["obs"][1] + 1e-10)
             reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
-            reshaped_action = action[:, :, t]
-            reshaped_action = torch.tile(reshaped_action[:, :, None, :], [1, 1, p, 1])
+            normalized_action = (action[:, :, t] - self.dynamics_model.normalization["act"][0]) / (self.dynamics_model.normalization["act"][1] + 1e-10)
+            reshaped_action = torch.tile(normalized_action[:, :, None, :], [1, 1, p, 1])
             reshaped_action = torch.reshape(torch.permute(reshaped_action, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
-            x = {"obs": reshaped_observation, "action": reshaped_action}
+            x = {"normalized_proc_obs": reshaped_observation, "normalized_act": reshaped_action}
 
             delta = self.dynamics_model.predict(x, reshaped_context)
             delta = torch.reshape(delta, [p, m, n, -1])

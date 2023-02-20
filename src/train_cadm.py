@@ -41,7 +41,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from .envs import make_env
-from .envs.wrappers import NormalizeObservation
 from .utils.arguments import parse_args
 from .dynamics.dynamics_model import DynamicsModel
 from .policies.mpc_controller import MPCController
@@ -98,7 +97,6 @@ if __name__ == "__main__":
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.dataset, i, args.capture_video, run_name, args.history_length, args.future_length, args.state_diff, env_config) for i in range(args.num_rollouts)]
     )
-    envs = NormalizeObservation(envs)
     envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
     
     args.max_path_length = envs.envs[0].spec.max_episode_steps
@@ -148,7 +146,6 @@ if __name__ == "__main__":
 
         #### Save periodically
         if itr % (args.n_itr // args.save_freq) == 0 or itr == args.n_itr:
-            dynamics_model.obs_rms = envs.obs_rms
             dynamics_model.save(os.path.join('runs', run_name, f'checkpoint_{itr}.pt'))
             with open(os.path.join('runs', run_name, 'training_args.json'), 'w') as fout:
                 json.dump(vars(args_for_save), fout, indent=2)

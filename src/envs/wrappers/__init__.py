@@ -1,3 +1,2 @@
 from .history_wrapper import HistoryWrapper
 from .context_wrapper import ContextWrapper
-from .normalize_observation import NormalizeObservation

@@ -106,14 +106,12 @@ class SingleHeadDecoder(nn.Module):
             prediction_error = self.l1_loss(forward_mu, forward_target)
 
             output = {
-                "forward_prediction": forward_mu,
-                "backward_prediction": backward_mu,
                 "forward_loss": forward_loss.item(),
                 "backward_loss": backward_loss.item(),
                 "prediction_loss": prediction_error.item(),
             }
         else:
-            obs, action = x["normalized_proc_obs"], x["normalized_action"]
+            obs, action = x["normalized_proc_obs"], x["normalized_act"]
 
             if context is not None:
                 forward_input = torch.cat([obs, action, context], dim=-1)
@@ -130,7 +128,7 @@ class SingleHeadDecoder(nn.Module):
                 forward_logstd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (forward_logstd + 1)
                 forward_std = torch.exp(forward_logstd)
                 forward_prediction = torch.distributions.normal.Normal(forward_mu, forward_std).sample()
-            output = {"forward_prediction": forward_prediction}
+            output = forward_prediction
             loss = 0.0
 
         return output, loss

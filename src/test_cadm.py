@@ -41,7 +41,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from .envs import make_env
-from .envs.wrappers import NormalizeObservation
 from .utils.arguments import test_parse_args
 from .dynamics.dynamics_model import DynamicsModel
 from .policies.mpc_controller import MPCController
@@ -77,7 +76,6 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
     dynamics_model.load(checkpoint)
     dynamics_model.eval()
 
-    envs = NormalizeObservation(envs, obs_rms=dynamics_model.obs_rms, test=True)
     envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
 
     policy = MPCController(args, envs, dynamics_model)

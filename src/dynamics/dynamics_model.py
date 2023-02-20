@@ -65,8 +65,9 @@ class DynamicsModel(nn.Module):
 
     def predict(self, x, context):
         self.eval()
-        output, _ = self.decoder(x, context) ##### decoder side에서 denormalization 추가
-        return output["forward_prediction"]
+        output, _ = self.decoder(x, context)
+        output = output * (self.normalization["delta"][1] + 1e-10) + self.normalization["delta"][0]
+        return output
 
     def fit(self, samples):
         t = time.time()
@@ -160,6 +161,7 @@ class DynamicsModel(nn.Module):
                 data["normalized_" + key] = (data[key] - self.normalization["sim_params"][0]) / (self.normalization["sim_params"][1] + 1e-10)
             else:
                 pass
+        return data
 
     def save(self, path):
         checkpoint = {
