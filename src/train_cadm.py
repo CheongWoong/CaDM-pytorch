@@ -96,7 +96,7 @@ if __name__ == "__main__":
     env_config = getattr(env_config, args.randomization_id)
     env_config = OmegaConf.to_object(env_config)
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.dataset, i, args.capture_video, run_name, args.history_length, args.future_length, env_config) for i in range(args.num_rollouts)]
+        [make_env(args.dataset, i, args.capture_video, run_name, args.history_length, args.future_length, args.state_diff, env_config) for i in range(args.num_rollouts)]
     )
     envs = NormalizeObservation(envs)
     envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
@@ -104,7 +104,10 @@ if __name__ == "__main__":
     args.max_path_length = envs.envs[0].spec.max_episode_steps
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
-    args.context_dim = envs.envs[0].num_modifiable_parameters
+    args.sim_param_dim = envs.envs[0].num_modifiable_parameters
+    args.obs_preproc = envs.envs[0].obs_preproc
+    args.obs_postproc = envs.envs[0].obs_postproc
+    args.targ_proc = envs.envs[0].targ_proc
 
     dynamics_model = DynamicsModel(args).to(device)
     policy = MPCController(args, envs, dynamics_model)
@@ -116,6 +119,8 @@ if __name__ == "__main__":
     video_filenames = set()
 
     for itr in range(1, args.n_itr + 1):
+        print("="*30)
+        print("iteration", itr)
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (itr - 1.0) / args.n_itr
@@ -129,7 +134,7 @@ if __name__ == "__main__":
         for key, value in logger_dict.items():
             writer.add_scalar(key, value, itr)
         samples_data = sampler.process_samples(paths)
-        logger_dict = dynamics_model.fit(samples_data)        
+        logger_dict = dynamics_model.fit(samples_data)
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         for key, value in logger_dict.items():
             writer.add_scalar(key, value, itr)

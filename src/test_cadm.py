@@ -63,12 +63,15 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
     env_config = getattr(env_config, args.randomization_id)
     env_config = OmegaConf.to_object(env_config)
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.dataset, i, args.capture_video, args.run_name + "_test", args.history_length, args.future_length, env_config, args.gui) for i in range(args.num_rollouts)]
+        [make_env(args.dataset, i, args.capture_video, args.run_name + "_test", args.history_length, args.future_length, args.state_diff, env_config, args.gui) for i in range(args.num_rollouts)]
     )
 
     args.obs_dim = np.prod(envs.single_observation_space["obs"].shape)
     args.action_dim = np.prod(envs.single_action_space.shape)
-    args.context_dim = envs.envs[0].num_modifiable_parameters
+    args.sim_param_dim = envs.envs[0].num_modifiable_parameters
+    args.obs_preproc = envs.envs[0].obs_preproc
+    args.obs_postproc = envs.envs[0].obs_postproc
+    args.targ_proc = envs.envs[0].targ_proc
 
     dynamics_model = DynamicsModel(args).to(device)
     dynamics_model.load(checkpoint)

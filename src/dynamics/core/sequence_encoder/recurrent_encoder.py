@@ -20,8 +20,8 @@ class RecurrentEncoder(nn.Module):
         )
 
     def forward(self, x):
-        h_o = x["history_obs_delta"] if self.args.use_obs_delta else x["history_obs"]
-        h_a = x["history_act"]
+        h_o = x["normalized_history_cp_obs"]
+        h_a = x["normalized_history_act"]
         x = torch.cat([h_o, h_a], dim=-1)
 
         batch_size = x.shape[0]

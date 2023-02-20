@@ -7,10 +7,10 @@ class ContextWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
 
-        context_dim = self.num_modifiable_parameters
+        sim_param_dim = self.num_modifiable_parameters
         
         context_observation_space = {
-            "context" : gym.spaces.Box(-np.inf, np.inf, (context_dim,))
+            "sim_params" : gym.spaces.Box(-np.inf, np.inf, (sim_param_dim,))
         }
         self.observation_space.spaces.update(context_observation_space)
 
@@ -18,22 +18,22 @@ class ContextWrapper(gym.Wrapper):
         observation, reward, terminated, truncated, info = super().step(action)
         # done = terminated or truncated
 
-        context = {
-            "context": self.context.copy(),
+        sim_params = {
+            "sim_params": self.sim_params.copy(),
         }
-        observation.update(context)
+        observation.update(sim_params)
         
         return observation, reward, terminated, truncated, info
 
     def reset(self, **kwargs):
         observation, info = super().reset(**kwargs)
 
-        self.context = self.get_sim_parameters()
+        self.sim_params = self.get_sim_parameters()
 
-        context = {
-            "context": self.context.copy(),
+        sim_params = {
+            "sim_params": self.sim_params.copy(),
         }
-        observation.update(context)
+        observation.update(sim_params)
 
         return observation, info
 

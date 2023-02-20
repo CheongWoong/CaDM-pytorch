@@ -30,8 +30,8 @@ def parse_args():
     # DM (Dynamics Model) configs
     parser.add_argument("--history-length", type=int, default=10,
         help="the length of history")
-    parser.add_argument("--use-obs-delta", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="whether to use obs difference or not")
+    parser.add_argument("--state-diff", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="whether to use state difference or not")
     parser.add_argument("--future-length", type=int, default=11,
         help="the length of future")
     parser.add_argument("--shuffle-future", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,

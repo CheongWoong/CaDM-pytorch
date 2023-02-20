@@ -1,5 +1,6 @@
-import numpy as np
+import time
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -30,6 +31,8 @@ class DynamicsModel(nn.Module):
         self.decoder = self.get_decoder(config.decoder_type)
 
         self.optimizer = optim.Adam(self.parameters(), lr=args.lr, eps=1e-5)
+
+        self._dataset = None
 
     def forward(self, x):
         context = None
@@ -62,14 +65,26 @@ class DynamicsModel(nn.Module):
 
     def predict(self, x, context):
         self.eval()
-        output, _ = self.decoder(x, context)
+        output, _ = self.decoder(x, context) ##### decoder side에서 denormalization 추가
         return output["forward_prediction"]
 
     def fit(self, samples):
+        t = time.time()
         self.train()
         args = self.args
 
-        batch_size = len(samples["rewards"])
+        if self._dataset is None:
+            self._dataset = {}
+            for key in samples:
+                self._dataset[key] = samples[key]
+        else:
+            for key in samples:
+                self._dataset[key] = torch.cat([self._dataset[key], samples[key]], dim=0)
+
+        self.compute_normalization()
+        self._dataset = self.normalize(self._dataset)
+
+        batch_size = len(self._dataset["rewards"])
         b_inds = np.arange(batch_size)
         # Optimizing the policy and value network
         for epoch in range(args.n_epochs):
@@ -78,10 +93,8 @@ class DynamicsModel(nn.Module):
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
 
-                x = {key: samples[key][mb_inds] for key in samples}
+                x = {key: self._dataset[key][mb_inds] for key in self._dataset}
                 
-                for key in x:
-                    print(key, x[key].shape)
                 output, loss = self.forward(x)
 
                 self.optimizer.zero_grad()
@@ -93,20 +106,72 @@ class DynamicsModel(nn.Module):
         for key in output:
             if "loss" in key:
                 logger_dict["losses/" + key] = output[key]
-        
+        print("training time:", time.time() - t)
         return logger_dict
+
+    def compute_normalization(self):
+        proc_obs = self.args.obs_preproc(self._dataset["future_obs"])
+
+        self.normalization = {}
+        self.normalization["obs"] = (
+            torch.mean(proc_obs, dim=(0, 1)),
+            torch.std(proc_obs, dim=(0, 1)),
+        )
+        self.normalization["delta"] = (
+            torch.mean(self._dataset["future_obs_delta"], dim=(0, 1)),
+            torch.std(self._dataset["future_obs_delta"], dim=(0, 1)),
+        )
+        self.normalization["act"] = (
+            torch.mean(self._dataset["future_act"], dim=(0, 1)),
+            torch.std(self._dataset["future_act"], dim=(0, 1)),
+        )
+        self.normalization["cp_obs"] = (
+            torch.mean(self._dataset["history_cp_obs"], dim=(0, 1)),
+            torch.std(self._dataset["history_cp_obs"], dim=(0, 1)),
+        )
+        self.normalization["cp_act"] = (
+            torch.mean(self._dataset["history_act"], dim=(0, 1)),
+            torch.std(self._dataset["history_act"], dim=(0, 1)),
+        )
+        self.normalization["back_delta"] = (
+            torch.mean(self._dataset["future_obs_back_delta"], dim=(0, 1)),
+            torch.std(self._dataset["future_obs_back_delta"], dim=(0, 1)),
+        )
+        self.normalization["sim_params"] = (
+            torch.mean(self._dataset["sim_params"], dim=(0)),
+            torch.std(self._dataset["sim_params"], dim=(0)),
+        )
+
+    def normalize(self, data):
+        keys = list(data.keys())
+        for key in keys:
+            if "back_delta" in key:
+                data["normalized_" + key] = (data[key] - self.normalization["back_delta"][0]) / (self.normalization["back_delta"][1] + 1e-10)
+            elif "delta" in key:
+                data["normalized_" + key] = (data[key] - self.normalization["delta"][0]) / (self.normalization["delta"][1] + 1e-10)
+            elif "cp_obs" in key:
+                data["normalized_" + key] = (data[key] - self.normalization["cp_obs"][0]) / (self.normalization["cp_obs"][1] + 1e-10)
+            elif "obs" in key:
+                proc_key = "proc_" + key
+                data["normalized_" + proc_key] = (self.args.obs_preproc(data[key]) - self.normalization["obs"][0]) / (self.normalization["obs"][1] + 1e-10)
+            elif "act" in key:
+                data["normalized_" + key] = (data[key] - self.normalization["act"][0]) / (self.normalization["act"][1] + 1e-10)
+            elif "sim_params" in key:
+                data["normalized_" + key] = (data[key] - self.normalization["sim_params"][0]) / (self.normalization["sim_params"][1] + 1e-10)
+            else:
+                pass
 
     def save(self, path):
         checkpoint = {
             "model": self.state_dict(),
-            "obs_rms": self.obs_rms
+            "normalization": self.normalization
         }
         torch.save(checkpoint, path)
 
     def load(self, path):
         checkpoint = torch.load(path)
         self.load_state_dict(checkpoint["model"])
-        self.obs_rms = checkpoint["obs_rms"]
+        self.normalization = checkpoint["normalization"]
 
     def get_sequence_encoder(self, type):
         sequence_encoder_map = {

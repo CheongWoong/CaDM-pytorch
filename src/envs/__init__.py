@@ -13,7 +13,7 @@ import numpy as np
 from .wrappers import HistoryWrapper, ContextWrapper
 
 
-def make_env(env_id, idx, capture_video, run_name, history_length, len_future, env_config, gui=False):
+def make_env(env_id, idx, capture_video, run_name, history_length, future_length, state_diff, env_config, gui=False):
     def thunk():
         if capture_video or gui:
             kwargs = {"render_mode": "rgb_array"}
@@ -28,7 +28,7 @@ def make_env(env_id, idx, capture_video, run_name, history_length, len_future, e
                 env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         # env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.RescaleAction(env, -1.0, 1.0)
-        env = HistoryWrapper(env, history_length, len_future)
+        env = HistoryWrapper(env, history_length, future_length, state_diff)
         env = ContextWrapper(env)
         return env
 

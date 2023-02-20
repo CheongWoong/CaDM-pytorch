@@ -42,12 +42,12 @@ class SingleHeadDecoder(nn.Module):
 
     def forward(self, x, context):
         if self.training:
-            forward_obs = x["future_obs"][:,:-1]
-            backward_obs = x["future_obs"][:,1:]
-            action = x["future_act"][:,:-1]
+            forward_obs = x["normalized_proc_future_obs"][:,:-1]
+            backward_obs = x["normalized_proc_future_obs"][:,1:]
+            action = x["normalized_future_act"][:,:-1]
 
-            forward_target = x["future_obs_delta"][:,:-1]
-            backward_target = -forward_target
+            forward_target = x["normalized_future_obs_delta"][:,:-1]
+            backward_target = x["normalized_future_obs_back_delta"][:,:-1]
             target_mask = x["future_mask"][:,:-1]
 
             forward_obs = torch.tile(forward_obs[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
@@ -113,7 +113,7 @@ class SingleHeadDecoder(nn.Module):
                 "prediction_loss": prediction_error.item(),
             }
         else:
-            obs, action = x["obs"], x["action"]
+            obs, action = x["normalized_proc_obs"], x["normalized_action"]
 
             if context is not None:
                 forward_input = torch.cat([obs, action, context], dim=-1)

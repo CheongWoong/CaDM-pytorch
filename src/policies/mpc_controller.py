@@ -58,6 +58,7 @@ class MPCController(Policy):
             self.prev_sol = torch.where(dones[:, None, None] > 0, 0., self.prev_sol)
 
     def get_action(self, observation):
+        observation = self.dynamics_model.normalize(observation)
         if self.use_cem:
             action = self.get_cem_action(observation)
             self.prev_sol[:, :-1] = action[:, 1:].clone()
@@ -89,8 +90,8 @@ class MPCController(Policy):
         for _ in range(self.num_cem_iters):
             repeated_mean = torch.tile(mean[:, None, :, :], [1, n, 1, 1])
             repeated_var = torch.tile(var[:, None, :, :], [1, n, 1, 1])
-            actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var)
-            actions = torch.clamp(actions, self.action_low, self.action_high)
+            actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var) #####
+            actions = torch.clamp(actions, self.action_low, self.action_high) ##### action mean std CHECK
 
             returns = 0
             observation = torch.tile(torch.reshape(observations["obs"], [m, 1, 1, -1]), [1, n, p, 1])
@@ -105,27 +106,20 @@ class MPCController(Policy):
                 reshaped_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
                 reshaped_action = torch.reshape(torch.permute(reshaped_action, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
-                reshaped_observation = torch.reshape(torch.permute(observation, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
-
+                proc_obs = self.args.obs_preproc(observation)
+                normalized_proc_obs = proc_obs ##### normalization 추가
+                reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
                 x = {"obs": reshaped_observation, "action": reshaped_action}
 
                 delta = self.dynamics_model.predict(x, reshaped_context)
                 delta = torch.reshape(delta, [p, m, n, -1])
                 delta = torch.permute(delta, [1, 2, 0, 3])
 
-                obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], dtype=torch.float32, device=self.device)
-                obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], dtype=torch.float32, device=self.device)
-                delta_mean = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].mean[-1][None, None, None, :], device=self.device)
-                delta_var = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].var[-1][None, None, None, :], device=self.device)
-                denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean
-                denormalized_delta = delta * torch.sqrt(delta_var + self.envs.epsilon) + delta_mean
-
-                denormalized_next_obs = denormalized_obs + denormalized_delta
+                next_observation = observation + delta
                 repeated_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
 
-                reward = self.dummy_env.reward(denormalized_obs, repeated_action, denormalized_next_obs)
+                reward = self.dummy_env.reward(observation, repeated_action, next_observation)
                 returns += self.gamma ** t * reward
-                next_observation = (denormalized_next_obs - obs_mean) / torch.sqrt(obs_var + self.envs.epsilon)
                 observation = next_observation
             returns = returns.mean(-1)
             _, elites_idx = torch.topk(returns, k=self.num_elites, dim=-1, sorted=True)
@@ -168,7 +162,9 @@ class MPCController(Policy):
                 else:
                     reshaped_context = None
                 
-            reshaped_observation = torch.reshape(torch.permute(observation, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
+            proc_obs = self.args.obs_preproc(observation)
+            normalized_proc_obs = proc_obs ##### normalization 추가
+            reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
             reshaped_action = action[:, :, t]
             reshaped_action = torch.tile(reshaped_action[:, :, None, :], [1, 1, p, 1])
@@ -180,19 +176,11 @@ class MPCController(Policy):
             delta = torch.reshape(delta, [p, m, n, -1])
             delta = torch.permute(delta, [1, 2, 0, 3])
 
-            obs_mean = torch.as_tensor(self.envs.obs_rms["obs"].mean[None, None, None, :], dtype=torch.float32, device=self.device)
-            obs_var = torch.as_tensor(self.envs.obs_rms["obs"].var[None, None, None, :], dtype=torch.float32, device=self.device)
-            delta_mean = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].mean[-1][None, None, None, :], device=self.device)
-            delta_var = torch.as_tensor(self.envs.obs_rms["future_obs_delta"].var[-1][None, None, None, :], device=self.device)
-            denormalized_obs = observation * torch.sqrt(obs_var + self.envs.epsilon) + obs_mean
-            denormalized_delta = delta * torch.sqrt(delta_var + self.envs.epsilon) + delta_mean
-
-            denormalized_next_obs = denormalized_obs + denormalized_delta
+            next_observation = observation + delta
             repeated_action = torch.tile(action[:, :, t][:, :, None, :], [1, 1, p, 1])
 
-            reward = self.dummy_env.reward(denormalized_obs, repeated_action, denormalized_next_obs)
+            reward = self.dummy_env.reward(observation, repeated_action, next_observation)
             returns += self.gamma ** t * reward
-            next_observation = (denormalized_next_obs - obs_mean) / torch.sqrt(obs_var + self.envs.epsilon)
             observation = next_observation
         returns = returns.mean(-1)
         max_return_idxs = torch.argmax(returns, dim=1)

@@ -156,7 +156,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.state = self.np_random.uniform(low=low, high=high, size=(4,))
         self.steps_beyond_terminated = None
 
-        self.change_env() #####
+        self.change_env()
 
         if self.render_mode == "human":
             self.render()
