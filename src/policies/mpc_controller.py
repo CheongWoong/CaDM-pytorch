@@ -91,7 +91,7 @@ class MPCController(Policy):
             repeated_mean = torch.tile(mean[:, None, :, :], [1, n, 1, 1])
             repeated_var = torch.tile(var[:, None, :, :], [1, n, 1, 1])
             actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var)
-            actions = torch.clamp(actions, self.action_low, self.action_high) ##### action mean std CHECK
+            actions = torch.clamp(actions, self.action_low, self.action_high)
 
             returns = 0
             observation = torch.tile(torch.reshape(observations["obs"], [m, 1, 1, -1]), [1, n, p, 1])

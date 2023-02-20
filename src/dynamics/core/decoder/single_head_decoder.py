@@ -3,9 +3,6 @@ import torch.nn as nn
 
 from ..layers import create_fc_layers
 
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
-
 
 class SingleHeadDecoder(nn.Module):
     def __init__(self, args, config):
@@ -25,18 +22,22 @@ class SingleHeadDecoder(nn.Module):
             config.activation,
         )
 
-        self.fc_forward_mu_logstd = create_fc_layers(
+        self.fc_forward_mu_logvar = create_fc_layers(
             args.ensemble_size,
             (args.hidden_size, args.obs_dim*2),
             "none"
         )
-        self.fc_backward_mu_logstd = create_fc_layers(
+        self.fc_backward_mu_logvar = create_fc_layers(
             args.ensemble_size,
             (args.hidden_size, args.obs_dim*2),
             "none"
         )
+        self.forward_max_logvar = nn.Parameter(torch.ones(args.obs_dim) / 2.0)
+        self.forward_min_logvar = nn.Parameter(-torch.ones(args.obs_dim) * 10)
+        self.backward_max_logvar = nn.Parameter(torch.ones(args.obs_dim) / 2.0)
+        self.backward_min_logvar = nn.Parameter(-torch.ones(args.obs_dim) * 10)
+        self.softplus = nn.Softplus()
 
-        self.nll = nn.GaussianNLLLoss(reduction="none")
         self.mse = nn.MSELoss(reduction="none")
         self.l1_loss = nn.L1Loss()
 
@@ -71,35 +72,37 @@ class SingleHeadDecoder(nn.Module):
             target_mask = target_mask.flatten(-3, -2)
 
             forward_output = self.fc_forward(forward_input)
-            forward_mu_logstd = self.fc_forward_mu_logstd(forward_output)
-            forward_mu = forward_mu_logstd[...,:self.args.obs_dim]
+            forward_mu_logvar = self.fc_forward_mu_logvar(forward_output)
+            forward_mu = forward_mu_logvar[...,:self.args.obs_dim]
             if self.args.deterministic:
                 # RMSE
                 forward_loss = self.mse(forward_mu, forward_target)
                 forward_loss = torch.where(target_mask > 0, forward_loss, 0.).mean()
                 forward_loss = torch.sqrt(forward_loss)
             else:
-                # Gaussian NLL
-                forward_logstd = torch.tanh(forward_mu_logstd[...,self.args.obs_dim:])
-                forward_logstd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (forward_logstd + 1)
-                forward_std = torch.exp(forward_logstd)
-                forward_loss = self.nll(forward_mu, forward_target, torch.square(forward_std))
+                # Logvar
+                forward_logvar = torch.tanh(forward_mu_logvar[...,self.args.obs_dim:])
+                forward_logvar = self.forward_max_logvar - self.softplus(self.forward_max_logvar - forward_logvar)
+                forward_logvar = self.forward_min_logvar - self.softplus(forward_logvar - self.forward_min_logvar)
+                forward_invvar = torch.exp(-forward_logvar)
+                forward_loss = self.mse(forward_mu, forward_target)*forward_invvar + forward_logvar
                 forward_loss = torch.where(target_mask > 0, forward_loss, 0.).mean()
 
             backward_output = self.fc_backward(backward_input)
-            backward_mu_logstd = self.fc_backward_mu_logstd(backward_output)
-            backward_mu = backward_mu_logstd[...,:self.args.obs_dim]
+            backward_mu_logvar = self.fc_backward_mu_logvar(backward_output)
+            backward_mu = backward_mu_logvar[...,:self.args.obs_dim]
             if self.args.deterministic:
                 # RMSE
                 backward_loss = self.mse(backward_mu, backward_target)
                 backward_loss = torch.where(target_mask > 0, backward_loss, 0.).mean()
                 backward_loss = torch.sqrt(backward_loss)
             else:
-                # Gaussian NLL
-                backward_logstd = torch.tanh(backward_mu_logstd[...,self.args.obs_dim:])
-                backward_logstd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (backward_logstd + 1)
-                backward_std = torch.exp(backward_logstd)
-                backward_loss = self.nll(backward_mu, backward_target, torch.square(backward_std))
+                # Logvar
+                backward_logvar = torch.tanh(backward_mu_logvar[...,self.args.obs_dim:])
+                backward_logvar = self.backward_max_logvar - self.softplus(self.backward_max_logvar - backward_logvar)
+                backward_logvar = self.backward_min_logvar - self.softplus(backward_logvar - self.backward_min_logvar)
+                backward_invvar = torch.exp(-backward_logvar)
+                backward_loss = self.mse(backward_mu, backward_target)*backward_invvar + backward_logvar
                 backward_loss = torch.where(target_mask > 0, backward_loss, 0.).mean()
 
             loss = forward_loss + self.args.back_coeff*backward_loss
@@ -119,16 +122,15 @@ class SingleHeadDecoder(nn.Module):
                 forward_input = torch.cat([obs, action], dim=-1)
 
             forward_output = self.fc_forward(forward_input)
-            forward_mu_logstd = self.fc_forward_mu_logstd(forward_output)
-            forward_mu = forward_mu_logstd[...,:self.args.obs_dim]
+            forward_mu_logvar = self.fc_forward_mu_logvar(forward_output)
+            forward_mu = forward_mu_logvar[...,:self.args.obs_dim]
             if self.args.deterministic:
-                forward_prediction = forward_mu
+                forward_logvar = None
             else:
-                forward_logstd = torch.tanh(forward_mu_logstd[...,self.args.obs_dim:])
-                forward_logstd = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (forward_logstd + 1)
-                forward_std = torch.exp(forward_logstd)
-                forward_prediction = torch.distributions.normal.Normal(forward_mu, forward_std).sample()
-            output = forward_prediction
+                forward_logvar = torch.tanh(forward_mu_logvar[...,self.args.obs_dim:])
+                forward_logvar = self.forward_max_logvar - self.softplus(self.forward_max_logvar - forward_logvar)
+                forward_logvar = self.forward_min_logvar - self.softplus(forward_logvar - self.forward_min_logvar)
+            output = (forward_mu, forward_logvar)
             loss = 0.0
 
         return output, loss

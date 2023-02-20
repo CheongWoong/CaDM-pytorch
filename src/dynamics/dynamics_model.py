@@ -66,7 +66,14 @@ class DynamicsModel(nn.Module):
     def predict(self, x, context):
         self.eval()
         output, _ = self.decoder(x, context)
-        output = output * (self.normalization["delta"][1] + 1e-10) + self.normalization["delta"][0]
+        mu, logvar = output
+        denormalized_mu = mu * (self.normalization["delta"][1] + 1e-10) + self.normalization["delta"][0]
+        if self.args.deterministic:
+            output = denormalized_mu
+        else:
+            denormalized_logvar = logvar + 2*torch.log(self.normalization["delta"][1])
+            denormalized_std = torch.exp(denormalized_logvar / 2.0)
+            output = denormalized_mu + torch.randn_like(denormalized_mu)*denormalized_std
         return output
 
     def fit(self, samples):
