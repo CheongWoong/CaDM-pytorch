@@ -38,9 +38,15 @@ def make_env(env_id, idx, capture_video, run_name, history_length, future_length
 # ----------------------------------------
 
 register(
-    id="cripple_ant",
-    entry_point="src.envs.mujoco_envs.ant_cripple_env:CrippleAntEnv",
-    max_episode_steps=1000,
+    id="cartpole",
+    entry_point="src.envs.mujoco_envs.cartpole:CartPoleEnv",
+    max_episode_steps=500,
+)
+
+register(
+    id="pendulum",
+    entry_point="src.envs.mujoco_envs.pendulum:PendulumEnv",
+    max_episode_steps=200,
 )
 
 register(
@@ -50,14 +56,8 @@ register(
 )
 
 register(
-    id="cartpole",
-    entry_point="src.envs.mujoco_envs.cartpole:CartPoleEnv",
-    max_episode_steps=500,
-)
-
-register(
-    id="cripple_halfcheetah",
-    entry_point="src.envs.mujoco_envs.half_cheetah_cripple_env:CrippleHalfCheetahEnv",
+    id="cripple_ant",
+    entry_point="src.envs.mujoco_envs.ant_cripple_env:CrippleAntEnv",
     max_episode_steps=1000,
 )
 
@@ -68,15 +68,15 @@ register(
 )
 
 register(
-    id="hopper",
-    entry_point="src.envs.mujoco_envs.hopper_env:HopperEnv",
-    max_episode_steps=500,
+    id="cripple_halfcheetah",
+    entry_point="src.envs.mujoco_envs.half_cheetah_cripple_env:CrippleHalfCheetahEnv",
+    max_episode_steps=1000,
 )
 
 register(
-    id="pendulum",
-    entry_point="src.envs.mujoco_envs.pendulum:PendulumEnv",
-    max_episode_steps=200,
+    id="hopper",
+    entry_point="src.envs.mujoco_envs.hopper_env:HopperEnv",
+    max_episode_steps=500,
 )
 
 register(

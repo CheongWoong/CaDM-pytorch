@@ -62,9 +62,8 @@ class Sampler():
             # Only print when at least 1 env is done
             if "final_info" in infos:
                 # if running path is done, add it to paths and empty the running path
-                done_indices = dones.nonzero()
+                done_indices = dones.nonzero()[0]
                 for done_idx in done_indices:
-                    done_idx = done_idx[0]
                     # for key in self.running_paths:
                     #     if key not in ["rewards"]:
                     #         self.running_paths[key][done_idx, self.running_path_idx[done_idx]:] = self.running_paths[key][done_idx, self.running_path_idx[done_idx] - 1:self.running_path_idx[done_idx]]
@@ -74,7 +73,7 @@ class Sampler():
                     for key in self.running_paths:
                         self.running_paths[key][done_idx] *= 0
                     new_samples += self.running_path_idx[done_idx]
-                    self.running_path_idx[done_idx] = 0
+                    self.running_path_idx[done_idx] *= 0
                 
                 self.policy.reset(dones)
                 n_samples += new_samples
