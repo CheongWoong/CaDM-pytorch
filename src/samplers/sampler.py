@@ -31,9 +31,7 @@ class Sampler():
         policy.reset()
 
         obses, _ = self.envs.reset(seed=args.seed)
-        for key in obses:
-            obses[key] = torch.Tensor(obses[key]).to(self.device)
-        dones = torch.zeros(args.num_rollouts, dtype=torch.float).to(self.device)
+        dones = np.zeros(args.num_rollouts, dtype=np.float32)
 
         while n_samples < self.total_samples:
             # execute policy
@@ -48,15 +46,11 @@ class Sampler():
             # step environments
             t = time.time()
             next_obses, rewards, terminateds, truncateds, infos = self.envs.step(actions)
-            for key in next_obses:
-                next_obses[key] = torch.Tensor(next_obses[key]).to(self.device)
             env_time += time.time() - t
 
             new_samples = 0
 
             dones = np.logical_or(terminateds, truncateds)
-            dones = torch.Tensor(dones).to(self.device)
-            rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device).view(-1)
 
             # append new samples to running paths
             for key in obses:
@@ -75,7 +69,8 @@ class Sampler():
                     #     if key not in ["rewards"]:
                     #         self.running_paths[key][done_idx, self.running_path_idx[done_idx]:] = self.running_paths[key][done_idx, self.running_path_idx[done_idx] - 1:self.running_path_idx[done_idx]]
                     # paths.append({key: self.running_paths[key][done_idx] for key in self.running_paths})
-                    paths.append({key: self.running_paths[key][done_idx, :self.running_path_idx[done_idx]] for key in self.running_paths})
+                    paths.append({key: self.running_paths[key][done_idx, :self.running_path_idx[done_idx]].copy() for key in self.running_paths})
+                    
                     for key in self.running_paths:
                         self.running_paths[key][done_idx] *= 0
                     new_samples += self.running_path_idx[done_idx]
@@ -122,7 +117,7 @@ class Sampler():
                     else:
                         samples_data[key].append(path[key][random_idx])
         for key in samples_data:
-            samples_data[key] = torch.cat(samples_data[key], dim=0)
+            samples_data[key] = np.concatenate(samples_data[key], axis=0)
         print("sample processing time:", time.time() - t)
         return samples_data
 
@@ -130,18 +125,18 @@ class Sampler():
         args = self.args
 
         self.running_paths = {
-            "rewards": torch.zeros((args.num_rollouts, args.max_path_length), dtype=torch.float32).to(self.device),
-            "history_cp_obs": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "history_obs": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "history_obs_delta": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "history_obs_back_delta": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "history_act": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.action_dim), dtype=torch.float32).to(self.device),
-            "history_mask": torch.zeros((args.num_rollouts, args.max_path_length, args.history_length, 1), dtype=torch.float32).to(self.device),
-            "future_obs": torch.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "future_obs_delta": torch.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "future_obs_back_delta": torch.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=torch.float32).to(self.device),
-            "future_act": torch.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.action_dim), dtype=torch.float32).to(self.device),
-            "future_mask": torch.zeros((args.num_rollouts, args.max_path_length, args.future_length, 1), dtype=torch.float32).to(self.device),
-            "sim_params": torch.zeros((args.num_rollouts, args.max_path_length, args.sim_param_dim), dtype=torch.float32).to(self.device),
+            "rewards": np.zeros((args.num_rollouts, args.max_path_length), dtype=np.float32),
+            "history_cp_obs": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=np.float32),
+            "history_obs": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=np.float32),
+            "history_obs_delta": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=np.float32),
+            "history_obs_back_delta": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.obs_dim), dtype=np.float32),
+            "history_act": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, args.action_dim), dtype=np.float32),
+            "history_mask": np.zeros((args.num_rollouts, args.max_path_length, args.history_length, 1), dtype=np.float32),
+            "future_obs": np.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=np.float32),
+            "future_obs_delta": np.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=np.float32),
+            "future_obs_back_delta": np.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.obs_dim), dtype=np.float32),
+            "future_act": np.zeros((args.num_rollouts, args.max_path_length, args.future_length, args.action_dim), dtype=np.float32),
+            "future_mask": np.zeros((args.num_rollouts, args.max_path_length, args.future_length, 1), dtype=np.float32),
+            "sim_params": np.zeros((args.num_rollouts, args.max_path_length, args.sim_param_dim), dtype=np.float32),
         }
         self.running_path_idx = np.zeros((args.num_rollouts), dtype=np.int32)

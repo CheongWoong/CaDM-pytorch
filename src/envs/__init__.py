@@ -26,8 +26,7 @@ def make_env(env_id, idx, capture_video, run_name, history_length, future_length
         if capture_video:
             if idx == 0:
                 env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        # env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.RescaleAction(env, -1.0, 1.0)
+        env = gym.wrappers.ClipAction(env)
         env = HistoryWrapper(env, history_length, future_length, state_diff)
         env = ContextWrapper(env)
         return env

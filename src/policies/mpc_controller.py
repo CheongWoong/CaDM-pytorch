@@ -3,10 +3,10 @@ Copyright (c)
 https://github.com/iclavera/learning_to_adapt
 """
 
-from copy import deepcopy
 import numpy as np
 import torch
 
+from ..utils.utils import normalize, denormalize
 from .base import Policy
 
 
@@ -58,14 +58,15 @@ class MPCController(Policy):
             self.prev_sol = torch.where(dones[:, None, None] > 0, 0., self.prev_sol)
 
     def get_action(self, observation):
-        observation = self.dynamics_model.normalize(observation)
+        observation = self.dynamics_model.apply_normalization(observation)
+        observations = {key: torch.Tensor(observation[key]).to(self.device) for key in observation}
         if self.use_cem:
-            action = self.get_cem_action(observation)
+            action = self.get_cem_action(observations)
             self.prev_sol[:, :-1] = action[:, 1:].clone()
             self.prev_sol[:, -1:] = 0.
             action = action[:, 0].clone()
         else:
-            action = self.get_rs_action(observation)
+            action = self.get_rs_action(observations)
 
         return action
 
@@ -73,8 +74,6 @@ class MPCController(Policy):
         return torch.distributions.uniform.Uniform(self.action_low, self.action_high).sample((n,))
 
     def get_cem_action(self, observations):
-        observations = deepcopy(observations)
-
         ensemble_size = self.ensemble_size
         n = self.n_candidates
         p = self.n_particles
@@ -88,10 +87,12 @@ class MPCController(Policy):
         context = context_output["context"]
         
         for _ in range(self.num_cem_iters):
+            lb_dist, ub_dist = mean - (-1.0), 1.0 - mean
             repeated_mean = torch.tile(mean[:, None, :, :], [1, n, 1, 1])
-            repeated_var = torch.tile(var[:, None, :, :], [1, n, 1, 1])
-            actions = repeated_mean + torch.randn(repeated_mean.shape, device=self.device)*torch.sqrt(repeated_var)
-            actions = torch.clamp(actions, self.action_low, self.action_high)
+            constrained_var = torch.minimum(torch.minimum(torch.square(lb_dist / 2), torch.square(ub_dist / 2)), var)
+            repeated_var = torch.tile(constrained_var[:, None, :, :], [1, n, 1, 1])
+            actions = torch.normal(repeated_mean, torch.sqrt(repeated_var))
+            actions = torch.clamp(actions, repeated_mean - 2*torch.sqrt(repeated_var), repeated_mean + 2*torch.sqrt(repeated_var))
 
             returns = 0
             observation = torch.tile(torch.reshape(observations["obs"], [m, 1, 1, -1]), [1, n, p, 1])
@@ -103,12 +104,12 @@ class MPCController(Policy):
                 reshaped_context = None
             for t in range(h):
                 action = actions[:, :, t]
-                normalized_action = (action - self.dynamics_model.normalization["act"][0]) / (self.dynamics_model.normalization["act"][1] + 1e-10)
+                normalized_action = normalize(action, self.dynamics_model.normalization["act"][0], self.dynamics_model.normalization["act"][1])
                 reshaped_action = torch.tile(normalized_action[:, :, None, :], [1, 1, p, 1])
                 reshaped_action = torch.reshape(torch.permute(reshaped_action, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
                 proc_obs = self.args.obs_preproc(observation)
-                normalized_proc_obs = (proc_obs - self.dynamics_model.normalization["obs"][0]) / (self.dynamics_model.normalization["obs"][1] + 1e-10)
+                normalized_proc_obs = normalize(proc_obs, self.dynamics_model.normalization["obs"][0], self.dynamics_model.normalization["obs"][1])
                 reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
                 x = {"normalized_proc_obs": reshaped_observation, "normalized_act": reshaped_action}
 
@@ -116,7 +117,7 @@ class MPCController(Policy):
                 delta = torch.reshape(delta, [p, m, n, -1])
                 delta = torch.permute(delta, [1, 2, 0, 3])
 
-                next_observation = observation + delta
+                next_observation = self.args.obs_postproc(observation, delta)
                 repeated_action = torch.tile(action[:, :, None, :], [1, 1, p, 1])
 
                 reward = self.dummy_env.reward(observation, repeated_action, next_observation)
@@ -138,8 +139,6 @@ class MPCController(Policy):
         return mean
 
     def get_rs_action(self, observations):
-        observations = deepcopy(observations)
-
         ensemble_size = self.ensemble_size
         n = self.n_candidates
         p = self.n_particles
@@ -164,10 +163,10 @@ class MPCController(Policy):
                     reshaped_context = None
                 
             proc_obs = self.args.obs_preproc(observation)
-            normalized_proc_obs = (proc_obs - self.dynamics_model.normalization["obs"][0]) / (self.dynamics_model.normalization["obs"][1] + 1e-10)
+            normalized_proc_obs = normalize(proc_obs, self.dynamics_model.normalization["obs"][0], self.dynamics_model.normalization["obs"][1])
             reshaped_observation = torch.reshape(torch.permute(normalized_proc_obs, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
-            normalized_action = (action[:, :, t] - self.dynamics_model.normalization["act"][0]) / (self.dynamics_model.normalization["act"][1] + 1e-10)
+            normalized_action = normalize(action[:, :, t], self.dynamics_model.normalization["act"][0], self.dynamics_model.normalization["act"][1])
             reshaped_action = torch.tile(normalized_action[:, :, None, :], [1, 1, p, 1])
             reshaped_action = torch.reshape(torch.permute(reshaped_action, [2, 0, 1, 3]), [ensemble_size, int(p/ensemble_size)*m*n, -1])
 
@@ -177,7 +176,7 @@ class MPCController(Policy):
             delta = torch.reshape(delta, [p, m, n, -1])
             delta = torch.permute(delta, [1, 2, 0, 3])
 
-            next_observation = observation + delta
+            next_observation = self.args.obs_postproc(observation, delta)
             repeated_action = torch.tile(action[:, :, t][:, :, None, :], [1, 1, p, 1])
 
             reward = self.dummy_env.reward(observation, repeated_action, next_observation)

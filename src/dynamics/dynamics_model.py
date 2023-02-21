@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from ..utils.utils import normalize, denormalize
 from .core.sequence_encoder import RecurrentEncoder, StackedEncoder
 from .core.context_encoder import Dummy
 from .core.decoder import SingleHeadDecoder, MultiHeadDecoder
@@ -67,11 +68,11 @@ class DynamicsModel(nn.Module):
         self.eval()
         output, _ = self.decoder(x, context)
         mu, logvar = output
-        denormalized_mu = mu * (self.normalization["delta"][1] + 1e-10) + self.normalization["delta"][0]
+        denormalized_mu = denormalize(mu, self.normalization["delta"][0], self.normalization["delta"][1])
         if self.args.deterministic:
             output = denormalized_mu
         else:
-            denormalized_logvar = logvar + 2*torch.log(self.normalization["delta"][1])
+            denormalized_logvar = logvar + 2*torch.log(torch.as_tensor(self.normalization["delta"][1], device=self.args.device))
             denormalized_std = torch.exp(denormalized_logvar / 2.0)
             output = denormalized_mu + torch.randn_like(denormalized_mu)*denormalized_std
         return output
@@ -87,12 +88,12 @@ class DynamicsModel(nn.Module):
                 self._dataset[key] = samples[key]
         else:
             for key in samples:
-                self._dataset[key] = torch.cat([self._dataset[key], samples[key]], dim=0)
+                self._dataset[key] = np.concatenate([self._dataset[key], samples[key]], axis=0)
 
         self.compute_normalization()
-        self._dataset = self.normalize(self._dataset)
+        normalized_dataset = self.apply_normalization(self._dataset)
 
-        batch_size = len(self._dataset["rewards"])
+        batch_size = len(normalized_dataset["rewards"])
         b_inds = np.arange(batch_size)
         # Optimizing the policy and value network
         for epoch in range(args.n_epochs):
@@ -101,7 +102,7 @@ class DynamicsModel(nn.Module):
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
 
-                x = {key: self._dataset[key][mb_inds] for key in self._dataset}
+                x = {key: torch.as_tensor(normalized_dataset[key][mb_inds], device=args.device) for key in normalized_dataset}
                 
                 output, loss = self.forward(x)
 
@@ -122,53 +123,53 @@ class DynamicsModel(nn.Module):
 
         self.normalization = {}
         self.normalization["obs"] = (
-            torch.mean(proc_obs, dim=(0, 1)),
-            torch.std(proc_obs, dim=(0, 1)),
+            np.mean(proc_obs, axis=(0, 1)),
+            np.std(proc_obs, axis=(0, 1)),
         )
         self.normalization["delta"] = (
-            torch.mean(self._dataset["future_obs_delta"], dim=(0, 1)),
-            torch.std(self._dataset["future_obs_delta"], dim=(0, 1)),
+            np.mean(self._dataset["future_obs_delta"], axis=(0, 1)),
+            np.std(self._dataset["future_obs_delta"], axis=(0, 1)),
         )
         self.normalization["act"] = (
-            torch.mean(self._dataset["future_act"], dim=(0, 1)),
-            torch.std(self._dataset["future_act"], dim=(0, 1)),
+            np.mean(self._dataset["future_act"], axis=(0, 1)),
+            np.std(self._dataset["future_act"], axis=(0, 1)),
         )
         self.normalization["cp_obs"] = (
-            torch.mean(self._dataset["history_cp_obs"], dim=(0, 1)),
-            torch.std(self._dataset["history_cp_obs"], dim=(0, 1)),
+            np.mean(self._dataset["history_cp_obs"], axis=(0, 1)),
+            np.std(self._dataset["history_cp_obs"], axis=(0, 1)),
         )
         self.normalization["cp_act"] = (
-            torch.mean(self._dataset["history_act"], dim=(0, 1)),
-            torch.std(self._dataset["history_act"], dim=(0, 1)),
+            np.mean(self._dataset["history_act"], axis=(0, 1)),
+            np.std(self._dataset["history_act"], axis=(0, 1)),
         )
         self.normalization["back_delta"] = (
-            torch.mean(self._dataset["future_obs_back_delta"], dim=(0, 1)),
-            torch.std(self._dataset["future_obs_back_delta"], dim=(0, 1)),
+            np.mean(self._dataset["future_obs_back_delta"], axis=(0, 1)),
+            np.std(self._dataset["future_obs_back_delta"], axis=(0, 1)),
         )
         self.normalization["sim_params"] = (
-            torch.mean(self._dataset["sim_params"], dim=(0)),
-            torch.std(self._dataset["sim_params"], dim=(0)),
+            np.mean(self._dataset["sim_params"], axis=(0)),
+            np.std(self._dataset["sim_params"], axis=(0)),
         )
 
-    def normalize(self, data):
-        keys = list(data.keys())
-        for key in keys:
+    def apply_normalization(self, data):
+        normalized_dataset = {}
+        for key, value in data.items():
             if "back_delta" in key:
-                data["normalized_" + key] = (data[key] - self.normalization["back_delta"][0]) / (self.normalization["back_delta"][1] + 1e-10)
+                normalized_dataset["normalized_" + key] = normalize(value, self.normalization["back_delta"][0], self.normalization["back_delta"][1])
             elif "delta" in key:
-                data["normalized_" + key] = (data[key] - self.normalization["delta"][0]) / (self.normalization["delta"][1] + 1e-10)
+                normalized_dataset["normalized_" + key] = normalize(value, self.normalization["delta"][0], self.normalization["delta"][1])
             elif "cp_obs" in key:
-                data["normalized_" + key] = (data[key] - self.normalization["cp_obs"][0]) / (self.normalization["cp_obs"][1] + 1e-10)
+                normalized_dataset["normalized_" + key] = normalize(value, self.normalization["cp_obs"][0], self.normalization["cp_obs"][1])
             elif "obs" in key:
-                proc_key = "proc_" + key
-                data["normalized_" + proc_key] = (self.args.obs_preproc(data[key]) - self.normalization["obs"][0]) / (self.normalization["obs"][1] + 1e-10)
+                normalized_dataset["normalized_proc_" + key] = normalize(self.args.obs_preproc(value), self.normalization["obs"][0], self.normalization["obs"][1])
             elif "act" in key:
-                data["normalized_" + key] = (data[key] - self.normalization["act"][0]) / (self.normalization["act"][1] + 1e-10)
+                normalized_dataset["normalized_" + key] = normalize(value, self.normalization["act"][0], self.normalization["act"][1])
             elif "sim_params" in key:
-                data["normalized_" + key] = (data[key] - self.normalization["sim_params"][0]) / (self.normalization["sim_params"][1] + 1e-10)
+                normalized_dataset["normalized_" + key] = normalize(value, self.normalization["sim_params"][0], self.normalization["sim_params"][1])
             else:
                 pass
-        return data
+        normalized_dataset.update(data)
+        return normalized_dataset
 
     def save(self, path):
         checkpoint = {
