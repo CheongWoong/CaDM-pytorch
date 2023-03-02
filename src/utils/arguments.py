@@ -44,8 +44,8 @@ def parse_args():
         help="whether to use deterministic neural networks or not")
     parser.add_argument("--ensemble-size", type=int, default=5,
         help="the number of ensembles (PE-TS)")
-    parser.add_argument("--context-hidden-dim", type=int, default=64,
-        help="the size of context hidden dimension")
+    parser.add_argument("--context-out-dim", type=int, default=10,
+        help="the size of context out dimension")
     # Training configs
     parser.add_argument("--n-itr", type=int, default=20,
         help="the number of iterations")

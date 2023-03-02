@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 
-from ..layers import create_fc_layers
+from ..utils import create_fc_layers
 
 
 class StackedEncoder(nn.Module):
     def __init__(self, args, config):
-        super(StackedEncoder, self).__init__()
+        super().__init__()
 
         self.args, self.config = args, config
 
@@ -22,8 +22,8 @@ class StackedEncoder(nn.Module):
         h_a = x["normalized_history_act"]
         x = torch.cat([h_o, h_a], dim=-1)
 
-        batch_size = x.shape[0]
-        x = torch.reshape(x, (batch_size, -1))
+        ensemble_size, batch_size = x.shape[:2]
+        x = torch.reshape(x, (ensemble_size, batch_size, -1))
 
         x = self.fc(x)
 

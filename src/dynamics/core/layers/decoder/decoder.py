@@ -1,16 +1,16 @@
 import torch
 import torch.nn as nn
 
-from ..layers import create_fc_layers
+from ..utils import create_fc_layers
 
 
-class SingleHeadDecoder(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, args, config):
         super().__init__()
 
         self.args = args
 
-        fc_hidden_sizes = (args.proc_obs_dim + args.action_dim + args.context_hidden_dim,) + (args.hidden_size,) * config.num_layers
+        fc_hidden_sizes = (args.proc_obs_dim + args.action_dim + args.context_out_dim,) + (args.hidden_size,) * config.num_layers
         self.fc_forward = create_fc_layers(
             args.ensemble_size,
             fc_hidden_sizes,
@@ -43,20 +43,20 @@ class SingleHeadDecoder(nn.Module):
 
     def forward(self, x, context):
         if self.training:
-            forward_obs = x["normalized_proc_future_obs"][:,:-1]
-            backward_obs = x["normalized_proc_future_obs"][:,1:]
-            action = x["normalized_future_act"][:,:-1]
+            forward_obs = x["normalized_proc_future_obs"][:,:,:-1]
+            backward_obs = x["normalized_proc_future_obs"][:,:,1:]
+            action = x["normalized_future_act"][:,:,:-1]
 
-            forward_target = x["normalized_future_obs_delta"][:,:-1]
-            backward_target = x["normalized_future_obs_back_delta"][:,:-1]
-            target_mask = x["future_mask"][:,:-1]
+            forward_target = x["normalized_future_obs_delta"][:,:,:-1]
+            backward_target = x["normalized_future_obs_back_delta"][:,:,:-1]
+            target_mask = x["future_mask"][:,:,:-1]
 
-            forward_obs = torch.tile(forward_obs[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
-            backward_obs = torch.tile(backward_obs[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
-            action = torch.tile(action[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
-            forward_target = torch.tile(forward_target[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
-            backward_target = torch.tile(backward_target[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
-            target_mask = torch.tile(target_mask[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # forward_obs = torch.tile(forward_obs[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # backward_obs = torch.tile(backward_obs[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # action = torch.tile(action[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # forward_target = torch.tile(forward_target[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # backward_target = torch.tile(backward_target[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
+            # target_mask = torch.tile(target_mask[None,:,:,:], [self.args.ensemble_size, 1, 1, 1])
             if context is not None:
                 context = torch.tile(context[:,:,None,:], [1, 1, self.args.future_length - 1, 1])
                 forward_input = torch.cat([forward_obs, action, context], dim=-1)

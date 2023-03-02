@@ -135,8 +135,8 @@ class PendulumEnv(gym.Env):
         theta = torch.atan2(next_obs[...,1],next_obs[...,0])
         theta_normalize = ((theta + np.pi) % (2 * np.pi)) - np.pi
         thetadot  = next_obs[...,2]
-        torque = np.clip(action, -self.max_torque, self.max_torque)
-        torque = np.reshape(torque, torque.shape[:-1])
+        torque = torch.clamp(action, -self.max_torque, self.max_torque)
+        torque = torch.reshape(torque, torque.shape[:-1])
         cost = theta_normalize**2 + 0.1*(thetadot)**2 + 0.001*(torque**2) # original
         return -cost
 

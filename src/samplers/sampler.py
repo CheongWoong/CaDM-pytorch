@@ -93,7 +93,6 @@ class Sampler():
         logger_dict = {}
         logger_dict["charts/episodic_return"] = np.mean(episodic_returns)
         logger_dict["charts/episodic_length"] = np.mean(episodic_lengths)
-
         return paths, logger_dict
 
     def process_samples(self, paths):

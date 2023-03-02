@@ -15,6 +15,8 @@ sequence_encoder:
 context_encoder:
   none:
     activation: none
+  cadm:
+    activation: none
 
 #####################################
 # Decoder types
@@ -34,15 +36,17 @@ dynamics_model:
     sequence_encoder_type: none
     context_encoder_type: none
     decoder_type: single_head
+    update_args:
+      context_out_dim: 0
 
-  cadm_stacked_singlehead:
+  cadm_stacked:
     sequence_encoder_type: stacked
-    context_encoder_type: none
+    context_encoder_type: cadm
     decoder_type: single_head
 
-  cadm_rnn_singlehead:
+  cadm_rnn:
     sequence_encoder_type: rnn
-    context_encoder_type: none
+    context_encoder_type: cadm
     decoder_type: single_head
 
 #####################################

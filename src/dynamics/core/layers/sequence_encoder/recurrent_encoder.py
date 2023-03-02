@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 
-from ..layers import create_fc_layers, EnsembleLSTMLayer
+from ..utils import create_fc_layers, EnsembleLSTMLayer
 
 
 class RecurrentEncoder(nn.Module):
     def __init__(self, args, config):
-        super(RecurrentEncoder, self).__init__()
+        super().__init__()
         
         self.args, self.config = args, config
 
@@ -24,7 +24,7 @@ class RecurrentEncoder(nn.Module):
         h_a = x["normalized_history_act"]
         x = torch.cat([h_o, h_a], dim=-1)
 
-        batch_size = x.shape[0]
+        batch_size = x.shape[1]
         hidden_dim = self.config.rnn_hidden_dim
         h0 = torch.zeros(self.args.ensemble_size, batch_size, hidden_dim, device=x.device)
         c0 = torch.zeros(self.args.ensemble_size, batch_size, hidden_dim, device=x.device)

@@ -47,6 +47,13 @@ from .policies.mpc_controller import MPCController
 from .samplers.sampler import Sampler
 
 
+def get_dynamics_model(type, args):
+        dynamics_model_map = {
+            "none": DynamicsModel,
+            "cadm": DynamicsModel,
+        }
+        return dynamics_model_map[type](args)
+
 def evaluate(args, checkpoint, checkpoint_idx, writer):
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
@@ -73,7 +80,11 @@ def evaluate(args, checkpoint, checkpoint_idx, writer):
     args.obs_postproc = envs.envs[0].obs_postproc
     args.targ_proc = envs.envs[0].targ_proc
 
-    dynamics_model = DynamicsModel(args).to(device)
+    update_args = getattr(getattr(args.dynamics_model, args.dynamics_model_type), "update_args", [])
+    for key in update_args:
+        setattr(args, key, update_args[key])
+    context_encoder_type = getattr(getattr(args.dynamics_model, args.dynamics_model_type), "context_encoder_type")
+    dynamics_model = get_dynamics_model(context_encoder_type, args).to(device)
     dynamics_model.load(checkpoint)
     dynamics_model.eval()
 

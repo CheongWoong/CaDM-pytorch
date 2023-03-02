@@ -1,2 +1,0 @@
-from .single_head_decoder import SingleHeadDecoder
-from .multi_head_decoder import MultiHeadDecoder

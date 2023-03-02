@@ -5,10 +5,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ..utils.utils import normalize, denormalize
-from .core.sequence_encoder import RecurrentEncoder, StackedEncoder
-from .core.context_encoder import Dummy
-from .core.decoder import SingleHeadDecoder, MultiHeadDecoder
+from .core.layers.utils import normalize, denormalize
+from .core.layers.sequence_encoder import StackedEncoder, RecurrentEncoder
+from .core.layers.context_encoder import CaDM
+from .core.layers.decoder import Decoder
 
 
 class DynamicsModel(nn.Module):
@@ -26,10 +26,11 @@ class DynamicsModel(nn.Module):
         self.context_encoder_config = None
         if hasattr(args.context_encoder, config.context_encoder_type):
             self.context_encoder_config = getattr(args.context_encoder, config.context_encoder_type)
+            self.context_encoder_config.context_in_dim = eval(self.sequence_encoder_config.fc_hidden_sizes)[-1]
         self.context_encoder = self.get_context_encoder(config.context_encoder_type)
 
         self.decoder_config = getattr(args.decoder, config.decoder_type)
-        self.decoder = self.get_decoder(config.decoder_type)
+        self.decoder = Decoder(self.args, self.decoder_config)
 
         self.optimizer = optim.Adam(self.parameters(), lr=args.lr, eps=1e-5)
 
@@ -40,7 +41,7 @@ class DynamicsModel(nn.Module):
         if self.sequence_encoder is not None:
             context = self.sequence_encoder(x)
         if self.context_encoder is not None:
-            context_output, context_loss = self.context_encoder(context)
+            context_output, context_loss = self.context_encoder(x, context)
         else:
             context_output = {"context": context}
             context_loss = 0.0
@@ -58,7 +59,7 @@ class DynamicsModel(nn.Module):
         if self.sequence_encoder is not None:
             context = self.sequence_encoder(x)
         if self.context_encoder is not None:
-            context_output, context_loss = self.context_encoder(context)
+            context_output, context_loss = self.context_encoder(x, context)
         else:
             context_output = {"context": context}
             context_loss = 0.0
@@ -68,7 +69,7 @@ class DynamicsModel(nn.Module):
         self.eval()
         output, _ = self.decoder(x, context)
         mu, logvar = output
-        denormalized_mu = denormalize(mu, self.normalization["delta"][0], self.normalization["delta"][1])
+        denormalized_mu = denormalize(mu, self.torch_normalization["delta"][0], self.torch_normalization["delta"][1])
         if self.args.deterministic:
             output = denormalized_mu
         else:
@@ -102,8 +103,7 @@ class DynamicsModel(nn.Module):
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
 
-                x = {key: torch.as_tensor(normalized_dataset[key][mb_inds], device=args.device) for key in normalized_dataset}
-                
+                x = {key: torch.as_tensor(normalized_dataset[key][mb_inds], device=args.device).repeat([args.ensemble_size]+[1]*len(normalized_dataset[key][mb_inds].shape)) for key in normalized_dataset}
                 output, loss = self.forward(x)
 
                 self.optimizer.zero_grad()
@@ -150,6 +150,9 @@ class DynamicsModel(nn.Module):
             np.mean(self._dataset["sim_params"], axis=(0)),
             np.std(self._dataset["sim_params"], axis=(0)),
         )
+        self.torch_normalization = {}
+        for key in self.normalization:
+            self.torch_normalization[key] = torch.as_tensor(np.array(self.normalization[key]), device=self.args.device)        
 
     def apply_normalization(self, data):
         normalized_dataset = {}
@@ -194,15 +197,7 @@ class DynamicsModel(nn.Module):
     def get_context_encoder(self, type):
         context_encoder_map = {
             "none": lambda *x: None,
-            "dummy": Dummy,
+            "cadm": CaDM,
         }
 
         return context_encoder_map[type](self.args, self.context_encoder_config)
-
-    def get_decoder(self, type):
-        decoder_map = {
-            "single_head": SingleHeadDecoder,
-            "multi_head": MultiHeadDecoder,
-        }
-
-        return decoder_map[type](self.args, self.decoder_config)

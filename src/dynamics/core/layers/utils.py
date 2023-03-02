@@ -57,8 +57,8 @@ class EnsembleLinear(nn.Module):
             nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, input):
-        if len(input.shape) == 2:
-            input = input.repeat(self.ensemble_size, 1, 1)
+        # if len(input.shape) == 2:
+        #     input = input.repeat(self.ensemble_size, 1, 1)
         return torch.baddbmm(self.bias, input, self.weight)
 
     def extra_repr(self):
@@ -90,8 +90,8 @@ class EnsembleLSTMCell(nn.Module):
             nn.init.uniform_(weight, -std, std)
     
     def forward(self, input, state):
-        if len(input.shape) == 2:
-            input = input.repeat(self.ensemble_size, 1, 1)
+        # if len(input.shape) == 2:
+        #     input = input.repeat(self.ensemble_size, 1, 1)
         hx, cx = state
         gates = torch.baddbmm(self.bias_ih, input, self.weight_ih) + torch.baddbmm(self.bias_hh, hx, self.weight_hh)
         ingate, forgetgate, cellgate, outgate = gates.chunk(4, -1)
@@ -118,3 +118,9 @@ class EnsembleLSTMLayer(nn.Module):
             out, state = self.cell(inputs[i], state)
             outputs.append(out)
         return torch.permute(torch.stack(outputs), [1, 2, 0, 3]), state
+    
+def normalize(data_array, mean, std):
+    return (data_array - mean) / (std + 1e-10)
+
+def denormalize(data_array, mean, std):
+    return data_array * (std + 1e-10) + mean
